@@ -46,7 +46,7 @@ func NewHttpClient() (*HttpClient, error) {
 		c.client.Jar.SetCookies(u, []*http.Cookie{
 			{
 				Name:  "jieqiUserInfo",
-				Value: "jieqiUserId=1125456,jieqiUserName=yyhyy,jieqiUserGroup=3,jieqiUserVip=0,jieqiUserPassword=eb62861281462fd923fb99218735fef0,jieqiUserName_un=yyhyy,jieqiUserHonor_un=&#x4E2D;&#x7EA7;&#x4F1A;&#x5458;,jieqiUserGroupName_un=&#x666E;&#x901A;&#x4F1A;&#x5458;,jieqiUserLogin=1739294499",
+				Value: "jieqiUserId=1125456,jieqiUserName=yyhyy,jieqiUserGroup=3,jieqiUserVip=0,jieqiUserPassword=eb62861281462fd923fb99218735fef0,jieqiUserName_un=yyhyy,jieqiUserHonor_un=%26%23x4E2D%3B%26%23x7EA7%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserGroupName_un=%26%23x666E%3B%26%23x901A%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserLogin=1739294499",
 			},
 			{
 				Name:  "jieqiVisitInfo",
