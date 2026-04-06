@@ -89,19 +89,23 @@ func (s *Wenku8Source) Search(ctx context.Context, searchType source.SearchType,
 	}
 
 	// Check if redirected directly to a single book page
-	singleBookMenu := doc.Find("#content > div:nth-child(1) > div:nth-child(4) > div > span:nth-child(1) > fieldset > div > a")
-	if singleBookMenu.Length() > 0 && strings.Contains(singleBookMenu.Text(), "小说目录") {
-		href, _ := singleBookMenu.Attr("href")
-		// e.g. /novel/1/1904/index.htm
-		parts := strings.Split(href, "/")
-		if len(parts) >= 4 {
-			bookID := parts[3]
-			detail, err := s.GetBookDetail(ctx, bookID)
-			if err != nil {
-				return nil, 0, err
+	var singleBookID string
+	doc.Find("a").Each(func(_ int, a *goquery.Selection) {
+		if strings.TrimSpace(a.Text()) == "小说目录" {
+			href, _ := a.Attr("href")
+			// e.g. /novel/4/4340/index.htm
+			parts := strings.Split(href, "/")
+			if len(parts) >= 4 {
+				singleBookID = parts[3]
 			}
-			return []model.BookSummary{detail.BookSummary}, 1, nil
 		}
+	})
+	if singleBookID != "" {
+		detail, err := s.GetBookDetail(ctx, singleBookID)
+		if err != nil {
+			return nil, 0, err
+		}
+		return []model.BookSummary{detail.BookSummary}, 1, nil
 	}
 
 	// Multiple books returned
