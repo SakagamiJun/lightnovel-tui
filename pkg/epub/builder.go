@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 // bufferPool provides reusable 32KB buffers for streaming zip writes.

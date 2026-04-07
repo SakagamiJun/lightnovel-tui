@@ -14,7 +14,7 @@ LightNovelReader CLI 是一个用 Go 语言编写的轻量级轻小说阅读与�
 ## 编译与安装
 
 ```bash
-cd lnr-cli
+cd lnr-core
 go build -o bin/lnr ./cmd/lnr/main.go
 ```
 

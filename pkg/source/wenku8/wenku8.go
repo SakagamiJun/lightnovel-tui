@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"lnr-cli/internal/client"
-	"lnr-cli/internal/encoding"
-	"lnr-cli/pkg/model"
-	"lnr-cli/pkg/source"
+	"lnr-core/internal/client"
+	"lnr-core/internal/encoding"
+	"lnr-core/pkg/model"
+	"lnr-core/pkg/source"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 // GetChapterContent fetches and parses the chapter text and illustrations.

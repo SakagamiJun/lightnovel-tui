@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"lnr-cli/pkg/downloader"
-	"lnr-cli/pkg/storage"
+	"lnr-core/pkg/downloader"
+	"lnr-core/pkg/storage"
 )
 
 // Exporter manages creating EPUB files from local cache or downloading missing content on demand.

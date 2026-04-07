@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lnr-cli/pkg/source"
+	"lnr-core/pkg/source"
 )
 
 func TestWenku8SearchAndDetail(t *testing.T) {

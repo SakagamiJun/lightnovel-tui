@@ -1,4 +1,4 @@
-module lnr-cli
+module lnr-core
 
 go 1.27.1
 

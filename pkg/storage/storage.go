@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 // Storage manages local disk caching of books, catalogs, chapters, and images.

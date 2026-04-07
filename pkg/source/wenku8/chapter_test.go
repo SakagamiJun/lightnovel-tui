@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 func TestWenku8ChapterContent(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"lnr-cli/internal/encoding"
+	"lnr-core/internal/encoding"
 )
 
 const (

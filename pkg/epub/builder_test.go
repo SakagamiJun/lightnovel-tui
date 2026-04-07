@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 func TestEPUBBuilder(t *testing.T) {

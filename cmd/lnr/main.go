@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"lnr-cli/pkg/downloader"
-	"lnr-cli/pkg/epub"
-	"lnr-cli/pkg/model"
-	"lnr-cli/pkg/source"
-	"lnr-cli/pkg/source/wenku8"
-	"lnr-cli/pkg/storage"
+	"lnr-core/pkg/downloader"
+	"lnr-core/pkg/epub"
+	"lnr-core/pkg/model"
+	"lnr-core/pkg/source"
+	"lnr-core/pkg/source/wenku8"
+	"lnr-core/pkg/storage"
 )
 
 var (

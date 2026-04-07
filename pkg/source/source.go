@@ -3,7 +3,7 @@ package source
 import (
 	"context"
 
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 // SearchType defines the search criterion (by title, author, etc.)

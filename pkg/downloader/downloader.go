@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"lnr-cli/internal/client"
-	"lnr-cli/pkg/model"
-	"lnr-cli/pkg/source"
-	"lnr-cli/pkg/storage"
+	"lnr-core/internal/client"
+	"lnr-core/pkg/model"
+	"lnr-core/pkg/source"
+	"lnr-core/pkg/storage"
 )
 
 // bufferPool provides reusable 32KB buffers to avoid allocation churn and keep memory minimal.

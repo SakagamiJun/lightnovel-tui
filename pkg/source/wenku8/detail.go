@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"lnr-cli/pkg/model"
+	"lnr-core/pkg/model"
 )
 
 // GetBookDetail fetches detailed information about a book.
