@@ -51,9 +51,9 @@ func TestDownloadVolume(t *testing.T) {
 	defer cancel()
 
 	progressCalls := 0
-	err = dl.DownloadVolume(ctx, "4340", testVolume, func(current, total int, title string) {
+	err = dl.DownloadVolume(ctx, "4340", testVolume, func(ev ProgressEvent) {
 		progressCalls++
-		t.Logf("[%d/%d] Downloading: %s", current, total, title)
+		t.Logf("[%d/%d] (%.1f%%) Downloading: %s", ev.Current, ev.Total, ev.Percentage, ev.ItemTitle)
 	})
 	if err != nil {
 		t.Fatalf("DownloadVolume failed: %v", err)

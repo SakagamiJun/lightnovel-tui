@@ -47,7 +47,7 @@ func NewDownloader(src source.DataSource, store *storage.Storage) (*Downloader, 
 }
 
 // DownloadVolume downloads all chapters and images within a specific volume.
-func (d *Downloader) DownloadVolume(ctx context.Context, bookID string, volume *model.Volume, onProgress func(current, total int, title string)) error {
+func (d *Downloader) DownloadVolume(ctx context.Context, bookID string, volume *model.Volume, handler ProgressHandler) error {
 	total := len(volume.Chapters)
 	if total == 0 {
 		return nil
@@ -58,8 +58,16 @@ func (d *Downloader) DownloadVolume(ctx context.Context, bookID string, volume *
 	}
 
 	for i, chInfo := range volume.Chapters {
-		if onProgress != nil {
-			onProgress(i+1, total, chInfo.Title)
+		if handler != nil {
+			handler(ProgressEvent{
+				BookID:      bookID,
+				VolumeID:    volume.ID,
+				VolumeTitle: volume.Title,
+				Current:     i + 1,
+				Total:       total,
+				ItemTitle:   chInfo.Title,
+				Percentage:  float64(i+1) / float64(total) * 100,
+			})
 		}
 
 		// Check if chapter already cached
@@ -80,10 +88,7 @@ func (d *Downloader) DownloadVolume(ctx context.Context, bookID string, volume *
 		// Download illustrations within this chapter
 		for _, el := range chContent.Elements {
 			if el.Type == model.ContentTypeImage && el.URL != "" {
-				if err := d.downloadImage(ctx, bookID, el.URL); err != nil {
-					// Don't fail the entire book if an image fails, log or continue
-					fmt.Printf("\n[warn] failed to download image %s: %v\n", el.URL, err)
-				}
+				_ = d.downloadImage(ctx, bookID, el.URL)
 			}
 		}
 	}

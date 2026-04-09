@@ -212,8 +212,8 @@ func main() {
 
 			for _, item := range volumesToDownload {
 				fmt.Printf("\n⬇️ 开始下载第 [%d/%d] 卷: %s\n", item.idx, len(catalog.Volumes), item.vol.Title)
-				err := dl.DownloadVolume(ctx, bookID, item.vol, func(cur, tot int, title string) {
-					fmt.Printf("\r  [%d/%d] 正在处理: %-30s", cur, tot, title)
+				err := dl.DownloadVolume(ctx, bookID, item.vol, func(ev downloader.ProgressEvent) {
+					fmt.Printf("\r  [%d/%d] (%.1f%%) 正在处理: %-30s", ev.Current, ev.Total, ev.Percentage, ev.ItemTitle)
 				})
 				if err != nil {
 					return fmt.Errorf("\n下载卷 %s 失败: %w", item.vol.Title, err)
