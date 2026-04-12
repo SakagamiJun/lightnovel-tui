@@ -1,0 +1,113 @@
+package reader
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"lnr-core/pkg/model"
+	"lnr-core/pkg/storage"
+)
+
+// ReadingProgress records the reading location of a book.
+type ReadingProgress struct {
+	BookID     string `json:"book_id"`
+	VolumeID   string `json:"volume_id"`
+	ChapterID  string `json:"chapter_id"`
+	LineIndex  int    `json:"line_index"`
+	LastReadAt int64  `json:"last_read_at"`
+}
+
+// Reader provides high-level reading navigation across cached chapters,
+// preparing text lines/images for consumption by TUI (Bubble Tea) or GUI (Fyne/Wails).
+type Reader struct {
+	store       *storage.Storage
+	bookID      string
+	catalog     *model.BookCatalog
+	currVolume  *model.Volume
+	currChapter *model.ChapterContent
+	lines       []string
+}
+
+// NewReader initializes a Reader engine for a cached book.
+func NewReader(store *storage.Storage, bookID string) (*Reader, error) {
+	catalog, err := store.LoadCatalog(bookID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load catalog for reader: %w", err)
+	}
+
+	return &Reader{
+		store:   store,
+		bookID:  bookID,
+		catalog: catalog,
+	}, nil
+}
+
+// LoadChapter loads a chapter into reader memory, pre-splitting paragraphs into readable lines.
+func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
+	ch, err := r.store.LoadChapter(r.bookID, chapterID)
+	if err != nil {
+		return nil, fmt.Errorf("chapter %s not found in cache: %w", chapterID, err)
+	}
+
+	r.currChapter = ch
+	r.lines = make([]string, 0)
+
+	// Format paragraphs into clean lines for TUI/GUI viewports
+	for _, el := range ch.Elements {
+		if el.Type == model.ContentTypeText {
+			for _, line := range strings.Split(el.Text, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					r.lines = append(r.lines, "  "+line) // standard Chinese novel indentation
+				}
+			}
+		} else if el.Type == model.ContentTypeImage {
+			r.lines = append(r.lines, fmt.Sprintf("[插图: %s]", el.URL))
+		}
+	}
+
+	return ch, nil
+}
+
+// Lines returns the formatted readable lines of the current loaded chapter.
+func (r *Reader) Lines() []string {
+	return r.lines
+}
+
+// CurrentChapter returns the active chapter content.
+func (r *Reader) CurrentChapter() *model.ChapterContent {
+	return r.currChapter
+}
+
+// Catalog returns the book catalog.
+func (r *Reader) Catalog() *model.BookCatalog {
+	return r.catalog
+}
+
+// SaveProgress records the reading bookmark to disk.
+func (r *Reader) SaveProgress(progress *ReadingProgress) error {
+	dir := r.store.BookDir(r.bookID)
+	f, err := os.Create(filepath.Join(dir, "progress.json"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(progress)
+}
+
+// LoadProgress loads the saved bookmark.
+func (r *Reader) LoadProgress() (*ReadingProgress, error) {
+	f, err := os.Open(filepath.Join(r.store.BookDir(r.bookID), "progress.json"))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var p ReadingProgress
+	if err := json.NewDecoder(f).Decode(&p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
