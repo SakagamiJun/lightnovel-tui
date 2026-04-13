@@ -1,56 +1,63 @@
-# LightNovelReader CLI (lnr)
+# LightNovelReader Core (lnr-core)
 
-LightNovelReader CLI 是一个用 Go 语言编写的轻量级轻小说阅读与下载命令行工具。
+`lnr-core` 是轻小说阅读器的 Go 语言核心功能底座。它采用模块化与无外部 UI 耦合设计，作为统一功能引擎支撑命令行 CLI、终端交互界面（TUI）以及未来桌面图形客户端（GUI）。
+
+## 项目定位与架构演进
+
+```
+lnr-core/
+├── go.mod                # module lnr-core
+├── cmd/                  # 多端目标入口 (统一调用底层 pkg/ core)
+│   ├── lnr/              # 命令行 CLI 工具 (search / info / download / export)
+│   ├── lnr-tui/          # 终端交互界面 TUI (规划中，基于 Bubble Tea)
+│   └── lnr-gui/          # 桌面 GUI 客户端 (规划中，基于 Fyne / Wails)
+├── pkg/                  # 核心功能底座 (Core Engine Library)
+│   ├── model/            # 领域模型 (BookSummary, BookDetail, Volume, Chapter, Element)
+│   ├── source/           # 多源抽象与具体实现 (Wenku8 爬虫、会话与 GB18030 转码)
+│   ├── downloader/       # 低内存流式下载器 (支持 ProgressEvent 事件通知与限流)
+│   ├── epub/             # 符合标准的流式 EPUB 导出打包引擎
+│   ├── storage/          # 本地缓存与书目文件管理
+│   └── reader/           # 阅读器引擎 (章节文本排版、分页切片与阅读书签记录)
+└── internal/
+    ├── client/           # HTTP 客户端配置与 Cookie 会话管理
+    └── encoding/         # GB18030 / UTF-8 流式转码器
+```
 
 ## 特性
 
-- **轻量低内存**：采用流式 GB18030 字符集转码、受控协程并发、复用缓冲区，保持极低内存占用。
-- **小说搜索**：支持按书名或作者检索轻小说，自动处理搜索频率限制。
-- **详情与目录查看**：快速浏览小说详细元数据、文库分类、状态、字数与完整分卷章节树。
-- **流式下载**：支持整本或指定分卷下载，完整抓取正文段落与全高清插图，支持本地断点续传。
-- **EPUB 电子书导出**：支持按分卷或整本打包导出为标准 EPUB 格式，内嵌插图、目录导航与自适应排版。
-- **高扩展性**：基于统一 `DataSource` 抽象，便于后续扩展 TUI 交互式终端阅读界面（如 Bubble Tea）与其他书源。
+- **纯净底层设计**：核心包（`pkg/`）无任何控制台硬编码打印，通过强类型事件与通道（`ProgressEvent`）向上层 UI 回传状态。
+- **极致内存节省**：全链路采用流式处理（`GB18030ToUTF8Reader`、`sync.Pool` 32KB 缓冲池复用、流式 ZIP 写入），杜绝大内存分配。
+- **开箱即用 CLI**：内置 `lnr` 命令行工具，提供搜索、查看、分卷下载与 EPUB 导出功能。
+- **阅读底座准备**：提供 `pkg/reader` 引擎，支持断点书签、文本对齐排版与图片混排，可直接被 TUI/GUI 接入。
 
-## 编译与安装
+## 快速上手 (CLI)
 
+### 编译构建
 ```bash
 cd lnr-core
 go build -o bin/lnr ./cmd/lnr/main.go
 ```
 
-## 使用说明
-
-### 1. 搜索小说
+### 基础命令
 ```bash
-# 按书名搜索
+# 1. 搜索小说
 ./bin/lnr search "关于我转生变成史莱姆这档事"
-
-# 按作者搜索
 ./bin/lnr search "伏濑" -a
 
-# 翻页搜索
-./bin/lnr search "史莱姆" -p 2
-```
-
-### 2. 查看小说详情与分卷目录
-```bash
+# 2. 查看详情与分卷目录
 ./bin/lnr info 4340
-```
 
-### 3. 下载小说与插图
-```bash
-# 下载指定分卷（如第1卷）
+# 3. 下载小说与插图 (支持指定分卷或全本)
 ./bin/lnr download 4340 --volume 1
 
-# 下载全本所有分卷
-./bin/lnr download 4340
+# 4. 导出为 EPUB 电子书
+./bin/lnr export 4340 --volume 1 -o ./slime_vol1.epub
+./bin/lnr export 4340 -o ./slime_complete.epub
 ```
 
-### 4. 导出为 EPUB 电子书
-```bash
-# 导出指定分卷
-./bin/lnr export 4340 --volume 1 -o ./slime_vol1.epub
+## 测试与质量保障
 
-# 导出全本单文件
-./bin/lnr export 4340 -o ./slime_complete.epub
+在项目根目录下运行全部单元测试：
+```bash
+go test -v ./...
 ```
