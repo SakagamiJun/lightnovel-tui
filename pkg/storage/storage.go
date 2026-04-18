@@ -133,3 +133,26 @@ func (s *Storage) ImagePath(bookID, imgFileName string) string {
 func (s *Storage) EnsureImageDir(bookID string) error {
 	return os.MkdirAll(filepath.Join(s.BookDir(bookID), "images"), 0755)
 }
+
+// ListCachedBooks returns all book details that have been cached on disk.
+func (s *Storage) ListCachedBooks() ([]model.BookDetail, error) {
+	booksRoot := filepath.Join(s.baseDir, "books")
+	entries, err := os.ReadDir(booksRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var books []model.BookDetail
+	for _, entry := range entries {
+		if entry.IsDir() {
+			detail, err := s.LoadBookDetail(entry.Name())
+			if err == nil && detail != nil {
+				books = append(books, *detail)
+			}
+		}
+	}
+	return books, nil
+}
