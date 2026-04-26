@@ -10,15 +10,8 @@ import (
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
+	"lnr-core/pkg/tui/views"
 )
-
-// View represents an interactive sub-view in the TUI application.
-type View interface {
-	Init() tea.Cmd
-	Update(msg tea.Msg) (View, tea.Cmd)
-	View() string
-	SetSize(width, height int)
-}
 
 // AppModel is the root Bubble Tea model managing sub-views, headers, and footer.
 type AppModel struct {
@@ -29,26 +22,46 @@ type AppModel struct {
 	height      int
 	statusText  string
 
-	// Sub-views map or interfaces
-	bookshelfView View
-	searchView    View
-	catalogView   View
-	readerView    View
+	bookshelfView *views.BookshelfView
+	searchView    *views.SearchView
+	catalogView   *views.CatalogView
+	readerView    *views.ReaderView
 }
 
 // NewAppModel initializes root TUI application model.
 func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
-	return &AppModel{
+	m := &AppModel{
 		store:       store,
 		src:         src,
 		currentView: common.ViewBookshelf,
-		statusText:  "欢迎使用 LightNovelReader TUI | 按 [Tab] 切换书架/搜索，按 [q] 退出",
+		statusText:  "按 [Tab] 切换书架/在线搜索, [Enter] 确认, [q] 退出",
 	}
+
+	m.bookshelfView = views.NewBookshelfView(store, func(bookID string) tea.Cmd {
+		m.currentView = common.ViewCatalog
+		return m.catalogView.LoadBook(bookID)
+	})
+
+	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
+		m.currentView = common.ViewCatalog
+		return m.catalogView.LoadBook(bookID)
+	})
+
+	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {
+		m.currentView = common.ViewReader
+		return m.readerView.OpenChapter(bookID, chapterID)
+	})
+
+	m.readerView = views.NewReaderView(store, src)
+
+	return m
 }
 
 func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(
 		tea.EnterAltScreen,
+		m.bookshelfView.Init(),
+		m.searchView.Init(),
 	)
 }
 
@@ -59,19 +72,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		contentHeight := m.height - 4 // minus header and status bar
-		if m.bookshelfView != nil {
-			m.bookshelfView.SetSize(m.width, contentHeight)
-		}
-		if m.searchView != nil {
-			m.searchView.SetSize(m.width, contentHeight)
-		}
-		if m.catalogView != nil {
-			m.catalogView.SetSize(m.width, contentHeight)
-		}
-		if m.readerView != nil {
-			m.readerView.SetSize(m.width, contentHeight)
-		}
+		contentHeight := m.height - 4
+		m.bookshelfView.SetSize(m.width, contentHeight)
+		m.searchView.SetSize(m.width, contentHeight)
+		m.catalogView.SetSize(m.width, contentHeight)
+		m.readerView.SetSize(m.width, contentHeight)
 
 	case common.StatusMsg:
 		m.statusText = string(msg)
@@ -81,18 +86,28 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.SwitchViewMsg:
 		m.currentView = msg.Target
-		// Handle specific view transitions if needed
+		switch msg.Target {
+		case common.ViewCatalog:
+			cmds = append(cmds, m.catalogView.LoadBook(msg.BookID))
+		case common.ViewReader:
+			cmds = append(cmds, m.readerView.OpenChapter(msg.BookID, msg.ChapID))
+		case common.ViewBookshelf:
+			m.bookshelfView.Reload()
+		}
 
 	case tea.KeyMsg:
-		// Global hotkeys
-		switch msg.String() {
-		case "ctrl+c":
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
-		case "tab":
+		}
+		if m.currentView == common.ViewBookshelf && msg.String() == "q" {
+			return m, tea.Quit
+		}
+		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch) {
 			if m.currentView == common.ViewBookshelf {
 				m.currentView = common.ViewSearch
-			} else if m.currentView == common.ViewSearch {
+			} else {
 				m.currentView = common.ViewBookshelf
+				m.bookshelfView.Reload()
 			}
 			return m, nil
 		}
@@ -102,25 +117,17 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.currentView {
 	case common.ViewBookshelf:
-		if m.bookshelfView != nil {
-			m.bookshelfView, cmd = m.bookshelfView.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		m.bookshelfView, cmd = m.bookshelfView.Update(msg)
+		cmds = append(cmds, cmd)
 	case common.ViewSearch:
-		if m.searchView != nil {
-			m.searchView, cmd = m.searchView.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		m.searchView, cmd = m.searchView.Update(msg)
+		cmds = append(cmds, cmd)
 	case common.ViewCatalog:
-		if m.catalogView != nil {
-			m.catalogView, cmd = m.catalogView.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		m.catalogView, cmd = m.catalogView.Update(msg)
+		cmds = append(cmds, cmd)
 	case common.ViewReader:
-		if m.readerView != nil {
-			m.readerView, cmd = m.readerView.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		m.readerView, cmd = m.readerView.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -137,14 +144,14 @@ func (m *AppModel) View() string {
 	title := theme.AppTitleStyle.Render("📖 LNR 轻小说")
 	var tabBookshelf, tabSearch string
 	if m.currentView == common.ViewBookshelf {
-		tabBookshelf = theme.TabActiveStyle.Render("📚 本地书架 (1)")
-		tabSearch = theme.TabInactiveStyle.Render("🔍 在线搜索 (2)")
+		tabBookshelf = theme.TabActiveStyle.Render("📚 本地书架 (Tab)")
+		tabSearch = theme.TabInactiveStyle.Render("🔍 在线搜索 (Tab)")
 	} else if m.currentView == common.ViewSearch {
-		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架 (1)")
-		tabSearch = theme.TabActiveStyle.Render("🔍 在线搜索 (2)")
+		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架 (Tab)")
+		tabSearch = theme.TabActiveStyle.Render("🔍 在线搜索 (Tab)")
 	} else if m.currentView == common.ViewCatalog {
 		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架")
-		tabSearch = theme.TabActiveStyle.Render("📖 小说目录")
+		tabSearch = theme.TabActiveStyle.Render("📖 目录分卷")
 	} else {
 		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架")
 		tabSearch = theme.TabActiveStyle.Render("👓 沉浸阅读")
@@ -158,29 +165,13 @@ func (m *AppModel) View() string {
 	var body string
 	switch m.currentView {
 	case common.ViewBookshelf:
-		if m.bookshelfView != nil {
-			body = m.bookshelfView.View()
-		} else {
-			body = "正在加载书架..."
-		}
+		body = m.bookshelfView.View()
 	case common.ViewSearch:
-		if m.searchView != nil {
-			body = m.searchView.View()
-		} else {
-			body = "正在加载搜索..."
-		}
+		body = m.searchView.View()
 	case common.ViewCatalog:
-		if m.catalogView != nil {
-			body = m.catalogView.View()
-		} else {
-			body = "正在加载目录..."
-		}
+		body = m.catalogView.View()
 	case common.ViewReader:
-		if m.readerView != nil {
-			body = m.readerView.View()
-		} else {
-			body = "正在加载正文..."
-		}
+		body = m.readerView.View()
 	}
 	sb.WriteString(body)
 	sb.WriteString("\n")
