@@ -38,7 +38,7 @@ cd lnr-core
 go build -o bin/lnr ./cmd/lnr/main.go
 ```
 
-### 基础命令
+### 基础命令 (CLI)
 ```bash
 # 1. 搜索小说
 ./bin/lnr search "关于我转生变成史莱姆这档事"
@@ -54,6 +54,24 @@ go build -o bin/lnr ./cmd/lnr/main.go
 ./bin/lnr export 4340 --volume 1 -o ./slime_vol1.epub
 ./bin/lnr export 4340 -o ./slime_complete.epub
 ```
+
+## 终端交互界面 (TUI)
+
+基于 Bubble Tea 打造的高性能轻量级终端阅读器界面：
+
+### 编译与启动
+```bash
+go build -o bin/lnr-tui ./cmd/lnr-tui/main.go
+./bin/lnr-tui
+```
+
+### 快捷键导航
+- `Tab`：在【📚 本地书架】与【🔍 在线搜索】之间快速切换。
+- `↑ / ↓` 或 `k / j`：选择小说或分卷章节。
+- `Enter`：进入选中的小说目录或阅读所选章节。
+- `Esc`：从阅读界面返回目录，或从目录返回书架（退出时自动记录阅读行数与书签）。
+- `j / k / 空格 / PageDown`：在正文阅读视口中流畅滚动与翻页。
+- `q`：在书架页面按 `q` 退出程序；任意界面支持 `Ctrl+C` 强制退出。
 
 ## 测试与质量保障
 
