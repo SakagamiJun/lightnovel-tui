@@ -29,6 +29,7 @@ type CatalogView struct {
 	detail    *model.BookDetail
 	catalog   *model.BookCatalog
 	cursor    int
+	offset    int
 	flatItems []flatChapterItem
 	loading   bool
 	err       error
@@ -60,6 +61,7 @@ func (v *CatalogView) LoadBook(bookID string) tea.Cmd {
 	v.loading = true
 	v.err = nil
 	v.cursor = 0
+	v.offset = 0
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -98,6 +100,35 @@ func (v *CatalogView) SetSize(width, height int) {
 	v.height = height
 }
 
+func (v *CatalogView) visibleLines() int {
+	// Total available height minus top title (2 lines) and bottom indicators
+	lines := v.height - 4
+	if lines < 5 {
+		lines = 5
+	}
+	return lines
+}
+
+func (v *CatalogView) adjustOffset() {
+	visible := v.visibleLines()
+	if v.cursor < v.offset {
+		v.offset = v.cursor
+	} else if v.cursor >= v.offset+visible {
+		v.offset = v.cursor - visible + 1
+	}
+	// Safety bound check
+	if v.offset < 0 {
+		v.offset = 0
+	}
+	maxOffset := len(v.flatItems) - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if v.offset > maxOffset {
+		v.offset = maxOffset
+	}
+}
+
 func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case catalogResultMsg:
@@ -105,18 +136,43 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 		v.detail = msg.detail
 		v.catalog = msg.catalog
 		v.err = msg.err
+		v.cursor = 0
+		v.offset = 0
 		v.flattenItems()
 		return v, nil
 
 	case tea.KeyMsg:
+		visible := v.visibleLines()
 		switch msg.String() {
 		case "up", "k":
 			if v.cursor > 0 {
 				v.cursor--
+				v.adjustOffset()
 			}
 		case "down", "j":
 			if v.cursor < len(v.flatItems)-1 {
 				v.cursor++
+				v.adjustOffset()
+			}
+		case "pgup", "ctrl+u", "b":
+			v.cursor -= visible
+			if v.cursor < 0 {
+				v.cursor = 0
+			}
+			v.adjustOffset()
+		case "pgdown", "ctrl+d", "f":
+			v.cursor += visible
+			if v.cursor >= len(v.flatItems) {
+				v.cursor = len(v.flatItems) - 1
+			}
+			v.adjustOffset()
+		case "g", "home":
+			v.cursor = 0
+			v.offset = 0
+		case "G", "end":
+			if len(v.flatItems) > 0 {
+				v.cursor = len(v.flatItems) - 1
+				v.adjustOffset()
 			}
 		case "enter":
 			if len(v.flatItems) > 0 && v.cursor < len(v.flatItems) {
@@ -175,17 +231,42 @@ func (v *CatalogView) View() string {
 		return fmt.Sprintf("\n❌ 获取目录失败: %v\n按 [Esc] 返回书架", v.err)
 	}
 
-	var sb strings.Builder
-	if v.detail != nil {
-		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-			Render(fmt.Sprintf("📖 %s (作者: %s) - [Esc] 返回, [Enter] 开始阅读", v.detail.Title, v.detail.Author))
-		sb.WriteString(header + "\n\n")
+	if len(v.flatItems) == 0 {
+		return "\n📖 暂无目录内容。按 [Esc] 返回书架"
 	}
 
-	for i, item := range v.flatItems {
+	var sb strings.Builder
+	if v.detail != nil {
+		curPos := v.cursor + 1
+		total := len(v.flatItems)
+		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
+			Render(fmt.Sprintf("📖 %s (%d/%d 项) - [↑/↓]移动, [PgUp/PgDn]翻页, [g/G]顶/底, [Enter]阅读, [Esc]返回",
+				v.detail.Title, curPos, total))
+		sb.WriteString(header + "\n")
+	}
+
+	v.adjustOffset()
+	visible := v.visibleLines()
+	start := v.offset
+	end := start + visible
+	if end > len(v.flatItems) {
+		end = len(v.flatItems)
+	}
+
+	// Top indicator if truncated
+	if start > 0 {
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+			Render(fmt.Sprintf("  ▲ 上方还有 %d 项被折叠 (按 [g] 回到顶部)", start)) + "\n")
+	} else {
+		sb.WriteString("\n")
+	}
+
+	// Windowed slice rendering
+	for i := start; i < end; i++ {
+		item := v.flatItems[i]
 		isSelected := i == v.cursor
 		if item.isVolume {
-			volStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentColor).MarginTop(1)
+			volStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentColor)
 			sb.WriteString(volStyle.Render("📁 " + item.volTitle))
 			sb.WriteString("\n")
 		} else {
@@ -198,6 +279,13 @@ func (v *CatalogView) View() string {
 			sb.WriteString(chStyle.Render(prefix + item.title))
 			sb.WriteString("\n")
 		}
+	}
+
+	// Bottom indicator if truncated
+	if end < len(v.flatItems) {
+		remaining := len(v.flatItems) - end
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+			Render(fmt.Sprintf("  ▼ 下方还有 %d 项被折叠 (按 [G] 跳到底部)", remaining)) + "\n")
 	}
 
 	return sb.String()
