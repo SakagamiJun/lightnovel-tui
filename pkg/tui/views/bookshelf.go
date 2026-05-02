@@ -84,6 +84,20 @@ func (v *BookshelfView) adjustOffset() {
 
 func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if v.cursor > 0 {
+				v.cursor--
+				v.adjustOffset()
+			}
+		case tea.MouseButtonWheelDown:
+			if v.cursor < len(v.books)-1 {
+				v.cursor++
+				v.adjustOffset()
+			}
+		}
+
 	case tea.KeyMsg:
 		visible := v.visibleCards()
 		switch msg.String() {

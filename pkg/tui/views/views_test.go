@@ -2,6 +2,8 @@ package views
 
 import (
 	"testing"
+
+	"lnr-core/pkg/model"
 )
 
 func TestCatalogWindowing(t *testing.T) {
@@ -57,5 +59,32 @@ func TestCatalogWindowing(t *testing.T) {
 	v.adjustOffset()
 	if v.offset != 0 {
 		t.Errorf("expected offset 0 when jumping back to top, got %d", v.offset)
+	}
+}
+
+func TestSearchWindowing(t *testing.T) {
+	v := &SearchView{
+		height:  27, // visibleCards = (27-7)/4 = 5
+		results: make([]model.BookSummary, 30),
+	}
+
+	visible := v.visibleCards()
+	if visible != 5 {
+		t.Fatalf("expected visible cards 5, got %d", visible)
+	}
+
+	// Move cursor to 10
+	v.cursor = 10
+	v.adjustOffset()
+	expectedOffset := 10 - 5 + 1 // 6
+	if v.offset != expectedOffset {
+		t.Errorf("expected offset %d, got %d", expectedOffset, v.offset)
+	}
+
+	// Move cursor backwards
+	v.cursor = 4
+	v.adjustOffset()
+	if v.offset != 4 {
+		t.Errorf("expected offset 4, got %d", v.offset)
 	}
 }

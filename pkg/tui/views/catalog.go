@@ -141,6 +141,20 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 		v.flattenItems()
 		return v, nil
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if v.cursor > 0 {
+				v.cursor--
+				v.adjustOffset()
+			}
+		case tea.MouseButtonWheelDown:
+			if v.cursor < len(v.flatItems)-1 {
+				v.cursor++
+				v.adjustOffset()
+			}
+		}
+
 	case tea.KeyMsg:
 		visible := v.visibleLines()
 		switch msg.String() {
