@@ -72,7 +72,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		contentHeight := m.height - 4
+		contentHeight := m.height - 3
+		if contentHeight < 1 {
+			contentHeight = 1
+		}
 		m.bookshelfView.SetSize(m.width, contentHeight)
 		m.searchView.SetSize(m.width, contentHeight)
 		m.catalogView.SetSize(m.width, contentHeight)
@@ -138,9 +141,7 @@ func (m *AppModel) View() string {
 		return "正在加载终端界面..."
 	}
 
-	var sb strings.Builder
-
-	// 1. Top Header Bar with Tabs
+	// 1. Top Header Bar with Tabs (strictly 2 lines: tabs + bottom border line)
 	title := theme.AppTitleStyle.Render("📖 LNR 轻小说")
 	var tabBookshelf, tabSearch string
 	if m.currentView == common.ViewBookshelf {
@@ -158,10 +159,18 @@ func (m *AppModel) View() string {
 	}
 
 	header := lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch)
-	sb.WriteString(theme.HeaderStyle.Width(m.width).Render(header))
-	sb.WriteString("\n")
+	headerRendered := theme.HeaderStyle.Width(m.width).Render(header)
 
-	// 2. Active View Body
+	// 2. Bottom Status Bar (strictly 1 line)
+	statusBarRendered := theme.StatusBarStyle.Width(m.width).Render(m.statusText)
+
+	// Content budget: total height minus header (2) minus status (1)
+	contentHeight := m.height - 3
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// 3. Active View Body
 	var body string
 	switch m.currentView {
 	case common.ViewBookshelf:
@@ -173,12 +182,16 @@ func (m *AppModel) View() string {
 	case common.ViewReader:
 		body = m.readerView.View()
 	}
-	sb.WriteString(body)
-	sb.WriteString("\n")
 
-	// 3. Bottom Status Bar
-	statusBar := theme.StatusBarStyle.Width(m.width).Render(m.statusText)
-	sb.WriteString(statusBar)
+	// Split body into lines and clamp/pad to exactly contentHeight lines
+	bodyLines := strings.Split(body, "\n")
+	if len(bodyLines) > contentHeight {
+		bodyLines = bodyLines[:contentHeight]
+	}
+	for len(bodyLines) < contentHeight {
+		bodyLines = append(bodyLines, "")
+	}
+	finalBody := strings.Join(bodyLines, "\n")
 
-	return sb.String()
+	return fmt.Sprintf("%s\n%s\n%s", headerRendered, finalBody, statusBarRendered)
 }

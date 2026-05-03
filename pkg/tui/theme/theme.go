@@ -33,8 +33,7 @@ var (
 	HeaderStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderForeground(BorderColor).
-			Padding(0, 1).
-			MarginBottom(1)
+			Padding(0, 1)
 
 	StatusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#D9D9D9")).
@@ -45,18 +44,23 @@ var (
 			Bold(true).
 			Foreground(PrimaryColor)
 
+	ListItemStyle = lipgloss.NewStyle().
+			Padding(0, 1)
+
+	ListItemActiveStyle = lipgloss.NewStyle().
+				Background(HighlightBg).
+				Padding(0, 1)
+
 	CardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(BorderColor).
-			Padding(0, 1).
-			MarginBottom(1)
+			Padding(0, 1)
 
 	CardActiveStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(PrimaryColor).
 			Background(HighlightBg).
-			Padding(0, 1).
-			MarginBottom(1)
+			Padding(0, 1)
 
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
