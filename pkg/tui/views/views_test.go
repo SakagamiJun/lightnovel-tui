@@ -1,6 +1,7 @@
 package views
 
 import (
+	"strings"
 	"testing"
 
 	"lnr-core/pkg/model"
@@ -64,19 +65,19 @@ func TestCatalogWindowing(t *testing.T) {
 
 func TestSearchWindowing(t *testing.T) {
 	v := &SearchView{
-		height:  27, // visibleCards = (27-7)/4 = 5
+		height:  27, // visibleCards = (27 - 6) / 2 = 10
 		results: make([]model.BookSummary, 30),
 	}
 
 	visible := v.visibleCards()
-	if visible != 5 {
-		t.Fatalf("expected visible cards 5, got %d", visible)
+	if visible != 10 {
+		t.Fatalf("expected visible cards 10, got %d", visible)
 	}
 
-	// Move cursor to 10
-	v.cursor = 10
+	// Move cursor to 15
+	v.cursor = 15
 	v.adjustOffset()
-	expectedOffset := 10 - 5 + 1 // 6
+	expectedOffset := 15 - 10 + 1 // 6
 	if v.offset != expectedOffset {
 		t.Errorf("expected offset %d, got %d", expectedOffset, v.offset)
 	}
@@ -86,5 +87,36 @@ func TestSearchWindowing(t *testing.T) {
 	v.adjustOffset()
 	if v.offset != 4 {
 		t.Errorf("expected offset 4, got %d", v.offset)
+	}
+}
+
+func TestSearchViewLineBudget(t *testing.T) {
+	// Test at terminal height = 21 (which corresponds to 24-line terminal: 24 - 3 = 21)
+	v := &SearchView{
+		width:   80,
+		height:  21,
+		results: make([]model.BookSummary, 30),
+	}
+	for i := 0; i < 30; i++ {
+		v.results[i] = model.BookSummary{
+			ID:          "1001",
+			Title:       "刀剑神域",
+			Author:      "川原砾",
+			Publisher:   "电击文库",
+			WordCount:   2800000,
+			Description: "无法完全攻略就无法离开游戏，Game Over也等于宣告玩家的“死亡”。",
+		}
+	}
+
+	// Render output
+	out := v.View()
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) > v.height {
+		t.Fatalf("SearchView.View() produced %d lines, strictly exceeding max height %d", len(lines), v.height)
+	}
+
+	// Verify top elements are always at the top
+	if !strings.Contains(lines[0], "在线小说检索") {
+		t.Errorf("expected line 0 to contain search title, got: %s", lines[0])
 	}
 }

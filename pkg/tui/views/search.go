@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/tui/common"
@@ -60,10 +61,16 @@ func (v *SearchView) SetSize(width, height int) {
 }
 
 func (v *SearchView) visibleCards() int {
-	// Header + input + instructions = ~5 lines. Each search card + margin = 4 lines.
-	cards := (v.height - 7) / 4
-	if cards < 2 {
-		cards = 2
+	// Fixed lines:
+	// Header (1) + Input (1) + Spacer (1) + Stats (1) + TopInd (1) + BotInd (1) = 6 lines.
+	// Each search item takes exactly 2 lines.
+	avail := v.height - 6
+	if avail < 2 {
+		return 1
+	}
+	cards := avail / 2
+	if cards < 1 {
+		cards = 1
 	}
 	return cards
 }
@@ -97,19 +104,32 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 		v.err = msg.err
 		v.cursor = 0
 		v.offset = 0
+		if len(msg.results) > 0 {
+			v.input.Blur()
+		}
 		return v, nil
 
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			if len(v.results) > 0 && v.cursor > 0 {
-				v.cursor--
-				v.adjustOffset()
+			if len(v.results) > 0 {
+				if v.input.Focused() {
+					v.input.Blur()
+				}
+				if v.cursor > 0 {
+					v.cursor--
+					v.adjustOffset()
+				}
 			}
 		case tea.MouseButtonWheelDown:
-			if len(v.results) > 0 && v.cursor < len(v.results)-1 {
-				v.cursor++
-				v.adjustOffset()
+			if len(v.results) > 0 {
+				if v.input.Focused() {
+					v.input.Blur()
+				}
+				if v.cursor < len(v.results)-1 {
+					v.cursor++
+					v.adjustOffset()
+				}
 			}
 		}
 
@@ -127,7 +147,7 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					res, _, err := v.src.Search(ctx, source.SearchTypeTitle, query, 1)
 					return searchResultMsg{results: res, err: err}
 				}
-			} else if len(v.results) > 0 && v.cursor < len(v.results) {
+			} else if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
 				selectedID := v.results[v.cursor].ID
 				if v.onSelect != nil {
 					return v, v.onSelect(selectedID)
@@ -140,30 +160,53 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 				}
 			}
 
-		case "up", "ctrl+k":
-			if len(v.results) > 0 && v.cursor > 0 {
-				v.cursor--
-				v.adjustOffset()
-			}
 		case "down", "ctrl+j":
-			if len(v.results) > 0 && v.cursor < len(v.results)-1 {
+			if v.input.Focused() && len(v.results) > 0 {
+				v.input.Blur()
+			} else if len(v.results) > 0 && v.cursor < len(v.results)-1 {
 				v.cursor++
 				v.adjustOffset()
 			}
+		case "up", "ctrl+k":
+			if !v.input.Focused() && len(v.results) > 0 {
+				if v.cursor > 0 {
+					v.cursor--
+					v.adjustOffset()
+				} else {
+					v.input.Focus()
+				}
+			}
 		case "pgup", "ctrl+u", "b":
-			v.cursor -= visible
-			if v.cursor < 0 {
-				v.cursor = 0
+			if !v.input.Focused() && len(v.results) > 0 {
+				v.cursor -= visible
+				if v.cursor < 0 {
+					v.cursor = 0
+				}
+				v.adjustOffset()
 			}
-			v.adjustOffset()
 		case "pgdown", "ctrl+d", "f":
-			v.cursor += visible
-			if v.cursor >= len(v.results) {
-				v.cursor = len(v.results) - 1
+			if !v.input.Focused() && len(v.results) > 0 {
+				v.cursor += visible
+				if v.cursor >= len(v.results) {
+					v.cursor = len(v.results) - 1
+				}
+				v.adjustOffset()
 			}
-			v.adjustOffset()
-		case "esc":
-			v.input.Focus()
+		case "g", "home":
+			if !v.input.Focused() && len(v.results) > 0 {
+				v.cursor = 0
+				v.offset = 0
+			}
+		case "G", "end":
+			if !v.input.Focused() && len(v.results) > 0 {
+				v.cursor = len(v.results) - 1
+				v.adjustOffset()
+			}
+		case "esc", "/":
+			if !v.input.Focused() {
+				v.input.Focus()
+				return v, nil
+			}
 		}
 	}
 
@@ -199,8 +242,13 @@ func (v *SearchView) View() string {
 	}
 
 	curPos := v.cursor + 1
-	sb.WriteString(fmt.Sprintf("共检索到 %d 条结果 (%d/%d) - [↑/↓/滚轮] 选择, [PgUp/PgDn] 翻页, [Enter] 查看目录/阅读:\n",
-		len(v.results), curPos, len(v.results)))
+	focusHint := "[/ 或 Esc] 输入关键词"
+	if v.input.Focused() {
+		focusHint = "[Enter] 搜索, [↓] 选择结果"
+	}
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
+		Render(fmt.Sprintf("共检索到 %d 条结果 (%d/%d) - [↑/↓/滚轮] 选择, [Enter] 查看目录, %s",
+			len(v.results), curPos, len(v.results), focusHint)) + "\n")
 
 	v.adjustOffset()
 	visible := v.visibleCards()
@@ -210,44 +258,68 @@ func (v *SearchView) View() string {
 		end = len(v.results)
 	}
 
-	cardWidth := v.width - 6
-	if cardWidth < 30 {
-		cardWidth = 30
+	maxWidth := v.width - 2
+	if maxWidth < 30 {
+		maxWidth = 30
 	}
 
+	// Top fold indicator (strictly 1 line)
 	if start > 0 {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▲ 上方还有 %d 条结果被折叠 (向上滚动查看)", start)) + "\n")
+			Render(fmt.Sprintf("  ▲ 上方还有 %d 条结果 (向上滚动查看)", start)) + "\n")
 	} else {
-		sb.WriteString("\n")
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
+			Render(strings.Repeat("─", maxWidth)) + "\n")
 	}
 
 	for i := start; i < end; i++ {
 		b := v.results[i]
-		isSelected := i == v.cursor
-		style := theme.CardStyle
+		isSelected := i == v.cursor && !v.input.Focused()
+
 		indicator := "  "
 		if isSelected {
-			style = theme.CardActiveStyle
 			indicator = "▶ "
 		}
 
-		desc := b.Description
-		if len([]rune(desc)) > 50 {
-			desc = string([]rune(desc)[:50]) + "..."
+		desc := strings.ReplaceAll(b.Description, "\r", " ")
+		desc = strings.ReplaceAll(desc, "\n", " ")
+		desc = strings.TrimSpace(desc)
+		if desc == "" {
+			desc = "暂无简介"
 		}
 
-		content := fmt.Sprintf("%s%s (ID: %s)\n作者: %s | 文库: %s | %d 字\n简介: %s",
-			indicator, b.Title, b.ID, b.Author, b.Publisher, b.WordCount, desc)
+		line1Raw := fmt.Sprintf("%s%s (ID: %s)  %s · %s · %d字",
+			indicator, b.Title, b.ID, b.Author, b.Publisher, b.WordCount)
+		line2Raw := fmt.Sprintf("    简介: %s", desc)
 
-		sb.WriteString(style.Width(cardWidth).Render(content))
-		sb.WriteString("\n")
+		line1Trunc := runewidth.Truncate(line1Raw, maxWidth, "...")
+		line2Trunc := runewidth.Truncate(line2Raw, maxWidth, "...")
+
+		if isSelected {
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
+				Background(theme.HighlightBg).Width(maxWidth).Render(line1Trunc))
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
+				Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc))
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
+				Width(maxWidth).Render(line1Trunc))
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+				Width(maxWidth).Render(line2Trunc))
+			sb.WriteString("\n")
+		}
 	}
 
+	// Bottom fold indicator (strictly 1 line)
 	if end < len(v.results) {
 		remaining := len(v.results) - end
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▼ 下方还有 %d 条结果被折叠 (向下滚动查看)", remaining)) + "\n")
+			Render(fmt.Sprintf("  ▼ 下方还有 %d 条结果 (向下滚动查看)", remaining)) + "\n")
+	} else {
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+			Render("  ✓ 已显示到底部") + "\n")
 	}
 
 	return sb.String()
