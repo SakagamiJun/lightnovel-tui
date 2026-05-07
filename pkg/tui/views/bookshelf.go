@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
@@ -35,9 +36,11 @@ func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.C
 
 // ReloadLoads cached books from storage.
 func (v *BookshelfView) Reload() {
-	books, err := v.store.ListCachedBooks()
-	if err == nil {
-		v.books = books
+	if v.store != nil {
+		books, err := v.store.ListCachedBooks()
+		if err == nil {
+			v.books = books
+		}
 	}
 	v.loaded = true
 }
@@ -55,10 +58,15 @@ func (v *BookshelfView) SetSize(width, height int) {
 }
 
 func (v *BookshelfView) visibleCards() int {
-	// Each book card is ~3 lines high (card + margin)
-	cards := (v.height - 4) / 3
-	if cards < 2 {
-		cards = 2
+	// Fixed lines: TitleBar (1) + TopInd (1) + BotInd (1) = 3 lines.
+	// Each book item takes exactly 2 lines.
+	avail := v.height - 3
+	if avail < 2 {
+		return 1
+	}
+	cards := avail / 2
+	if cards < 1 {
+		cards = 1
 	}
 	return cards
 }
@@ -167,7 +175,7 @@ func (v *BookshelfView) View() string {
 	var sb strings.Builder
 	curPos := v.cursor + 1
 	titleBar := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render(fmt.Sprintf("📖 本地藏书 (%d/%d 本) - [↑/↓] 选择, [PgUp/PgDn] 翻页, [Enter] 打开目录, [r] 刷新", curPos, len(v.books)))
+		Render(fmt.Sprintf("📖 本地藏书 (%d/%d 本) - [↑/↓/滚轮] 选择, [Enter] 打开目录, [r] 刷新", curPos, len(v.books)))
 	sb.WriteString(titleBar + "\n")
 
 	v.adjustOffset()
@@ -178,27 +186,26 @@ func (v *BookshelfView) View() string {
 		end = len(v.books)
 	}
 
+	maxWidth := v.width - 2
+	if maxWidth < 30 {
+		maxWidth = 30
+	}
+
 	if start > 0 {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
 			Render(fmt.Sprintf("  ▲ 上方还有 %d 本藏书被折叠 (按 [g] 到顶部)", start)) + "\n")
 	} else {
-		sb.WriteString("\n")
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
+			Render(strings.Repeat("─", maxWidth)) + "\n")
 	}
 
 	// Render windowed slice of books
 	for i := start; i < end; i++ {
 		b := v.books[i]
 		isSelected := i == v.cursor
-		style := theme.CardStyle
 		indicator := "  "
 		if isSelected {
-			style = theme.CardActiveStyle
 			indicator = "▶ "
-		}
-
-		cardWidth := v.width - 6
-		if cardWidth < 30 {
-			cardWidth = 30
 		}
 
 		status := "连载中"
@@ -206,17 +213,46 @@ func (v *BookshelfView) View() string {
 			status = "已完结"
 		}
 
-		content := fmt.Sprintf("%s%s  (ID: %s)\n作者: %s | 文库: %s | 状态: %s | %d 字",
-			indicator, b.Title, b.ID, b.Author, b.Publisher, status, b.WordCount)
+		desc := strings.ReplaceAll(b.Description, "\r", " ")
+		desc = strings.ReplaceAll(desc, "\n", " ")
+		desc = strings.TrimSpace(desc)
+		if desc == "" {
+			desc = "已缓存到本地，按 [Enter] 查看分卷目录"
+		} else {
+			desc = "简介: " + desc
+		}
 
-		sb.WriteString(style.Width(cardWidth).Render(content))
-		sb.WriteString("\n")
+		line1Raw := fmt.Sprintf("%s%s (ID: %s)  %s · %s · %s · %d字",
+			indicator, b.Title, b.ID, b.Author, b.Publisher, status, b.WordCount)
+		line2Raw := fmt.Sprintf("    %s", desc)
+
+		line1Trunc := runewidth.Truncate(line1Raw, maxWidth, "...")
+		line2Trunc := runewidth.Truncate(line2Raw, maxWidth, "...")
+
+		if isSelected {
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
+				Background(theme.HighlightBg).Width(maxWidth).Render(line1Trunc))
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
+				Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc))
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
+				Width(maxWidth).Render(line1Trunc))
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+				Width(maxWidth).Render(line2Trunc))
+			sb.WriteString("\n")
+		}
 	}
 
 	if end < len(v.books) {
 		remaining := len(v.books) - end
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
 			Render(fmt.Sprintf("  ▼ 下方还有 %d 本藏书被折叠 (按 [G] 到底部)", remaining)) + "\n")
+	} else {
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+			Render("  ✓ 已显示到底部") + "\n")
 	}
 
 	return sb.String()

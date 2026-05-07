@@ -60,6 +60,18 @@ func (v *SearchView) SetSize(width, height int) {
 	v.height = height
 }
 
+// SetResults populates search results directly.
+func (v *SearchView) SetResults(results []model.BookSummary) {
+	v.searching = false
+	v.results = results
+	v.err = nil
+	v.cursor = 0
+	v.offset = 0
+	if len(results) > 0 {
+		v.input.Blur()
+	}
+}
+
 func (v *SearchView) visibleCards() int {
 	// Fixed lines:
 	// Header (1) + Input (1) + Spacer (1) + Stats (1) + TopInd (1) + BotInd (1) = 6 lines.

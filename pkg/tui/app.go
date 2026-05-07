@@ -184,6 +184,7 @@ func (m *AppModel) View() string {
 	}
 
 	// Split body into lines and clamp/pad to exactly contentHeight lines
+	body = strings.TrimSuffix(body, "\n")
 	bodyLines := strings.Split(body, "\n")
 	if len(bodyLines) > contentHeight {
 		bodyLines = bodyLines[:contentHeight]

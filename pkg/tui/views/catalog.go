@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
@@ -101,10 +102,10 @@ func (v *CatalogView) SetSize(width, height int) {
 }
 
 func (v *CatalogView) visibleLines() int {
-	// Total available height minus top title (2 lines) and bottom indicators
-	lines := v.height - 4
-	if lines < 5 {
-		lines = 5
+	// Total available height minus top title (1 line) and indicators (2 lines) = 3 lines
+	lines := v.height - 3
+	if lines < 1 {
+		lines = 1
 	}
 	return lines
 }
@@ -250,12 +251,17 @@ func (v *CatalogView) View() string {
 	}
 
 	var sb strings.Builder
+	maxWidth := v.width - 2
+	if maxWidth < 30 {
+		maxWidth = 30
+	}
+
 	if v.detail != nil {
 		curPos := v.cursor + 1
 		total := len(v.flatItems)
 		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-			Render(fmt.Sprintf("📖 %s (%d/%d 项) - [↑/↓]移动, [PgUp/PgDn]翻页, [g/G]顶/底, [Enter]阅读, [Esc]返回",
-				v.detail.Title, curPos, total))
+			Render(runewidth.Truncate(fmt.Sprintf("📖 %s (%d/%d 项) - [↑/↓/滚轮]移动, [Enter]阅读, [Esc]返回",
+				v.detail.Title, curPos, total), maxWidth, "..."))
 		sb.WriteString(header + "\n")
 	}
 
@@ -272,7 +278,8 @@ func (v *CatalogView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
 			Render(fmt.Sprintf("  ▲ 上方还有 %d 项被折叠 (按 [g] 回到顶部)", start)) + "\n")
 	} else {
-		sb.WriteString("\n")
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
+			Render(strings.Repeat("─", maxWidth)) + "\n")
 	}
 
 	// Windowed slice rendering
@@ -281,17 +288,23 @@ func (v *CatalogView) View() string {
 		isSelected := i == v.cursor
 		if item.isVolume {
 			volStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentColor)
-			sb.WriteString(volStyle.Render("📁 " + item.volTitle))
+			line := runewidth.Truncate("📁 "+item.volTitle, maxWidth, "...")
+			sb.WriteString(volStyle.Render(line))
 			sb.WriteString("\n")
 		} else {
-			chStyle := lipgloss.NewStyle()
 			prefix := "    "
 			if isSelected {
-				chStyle = chStyle.Bold(true).Foreground(theme.PrimaryColor).Background(theme.HighlightBg)
 				prefix = "  ▶ "
+				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
+				sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
+					Background(theme.HighlightBg).Width(maxWidth).Render(line))
+				sb.WriteString("\n")
+			} else {
+				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
+				sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
+					Width(maxWidth).Render(line))
+				sb.WriteString("\n")
 			}
-			sb.WriteString(chStyle.Render(prefix + item.title))
-			sb.WriteString("\n")
 		}
 	}
 
@@ -300,6 +313,9 @@ func (v *CatalogView) View() string {
 		remaining := len(v.flatItems) - end
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
 			Render(fmt.Sprintf("  ▼ 下方还有 %d 项被折叠 (按 [G] 跳到底部)", remaining)) + "\n")
+	} else {
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
+			Render("  ✓ 已显示到底部") + "\n")
 	}
 
 	return sb.String()
