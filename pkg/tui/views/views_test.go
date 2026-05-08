@@ -9,7 +9,7 @@ import (
 
 func TestCatalogWindowing(t *testing.T) {
 	v := &CatalogView{
-		height:    20, // visibleLines = 16
+		height:    20, // visibleLines = 20 - 3 = 17
 		flatItems: make([]flatChapterItem, 50),
 	}
 
@@ -20,8 +20,8 @@ func TestCatalogWindowing(t *testing.T) {
 	}
 
 	visible := v.visibleLines()
-	if visible != 16 {
-		t.Fatalf("expected visible lines 16, got %d", visible)
+	if visible != 17 {
+		t.Fatalf("expected visible lines 17, got %d", visible)
 	}
 
 	// 1. Initial position
@@ -41,8 +41,8 @@ func TestCatalogWindowing(t *testing.T) {
 	// 3. Cursor moves beyond first screen (e.g. index 20)
 	v.cursor = 20
 	v.adjustOffset()
-	// offset should shift so cursor is visible: cursor - visible + 1 = 20 - 16 + 1 = 5
-	expectedOffset := 20 - 16 + 1
+	// offset should shift so cursor is visible: cursor - visible + 1 = 20 - 17 + 1 = 4
+	expectedOffset := 20 - 17 + 1
 	if v.offset != expectedOffset {
 		t.Errorf("expected offset %d at cursor 20, got %d", expectedOffset, v.offset)
 	}
@@ -50,7 +50,7 @@ func TestCatalogWindowing(t *testing.T) {
 	// 4. Cursor jumps to bottom (index 49)
 	v.cursor = 49
 	v.adjustOffset()
-	maxOffset := 50 - 16 // 34
+	maxOffset := 50 - 17 // 33
 	if v.offset != maxOffset {
 		t.Errorf("expected offset %d at cursor 49, got %d", maxOffset, v.offset)
 	}
@@ -118,5 +118,64 @@ func TestSearchViewLineBudget(t *testing.T) {
 	// Verify top elements are always at the top
 	if !strings.Contains(lines[0], "在线小说检索") {
 		t.Errorf("expected line 0 to contain search title, got: %s", lines[0])
+	}
+}
+
+func TestBookshelfViewLineBudget(t *testing.T) {
+	v := &BookshelfView{
+		width:  80,
+		height: 21,
+		loaded: true,
+		books:  make([]model.BookDetail, 30),
+	}
+	for i := 0; i < 30; i++ {
+		v.books[i] = model.BookDetail{
+			BookSummary: model.BookSummary{
+				ID:          "1001",
+				Title:       "刀剑神域",
+				Author:      "川原砾",
+				Publisher:   "电击文库",
+				WordCount:   2800000,
+				Description: "无法完全攻略就无法离开游戏，Game Over也等于宣告玩家的“死亡”。",
+			},
+		}
+	}
+
+	out := v.View()
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) > v.height {
+		t.Fatalf("BookshelfView.View() produced %d lines, strictly exceeding max height %d", len(lines), v.height)
+	}
+
+	if !strings.Contains(lines[0], "本地藏书") {
+		t.Errorf("expected line 0 to contain bookshelf title, got: %s", lines[0])
+	}
+}
+
+func TestCatalogViewLineBudget(t *testing.T) {
+	v := &CatalogView{
+		width:  80,
+		height: 21,
+		detail: &model.BookDetail{
+			BookSummary: model.BookSummary{
+				Title: "刀剑神域",
+			},
+		},
+		flatItems: make([]flatChapterItem, 50),
+	}
+	for i := 0; i < 50; i++ {
+		v.flatItems[i] = flatChapterItem{
+			title: "第 1 卷 艾恩葛朗特 第一章",
+		}
+	}
+
+	out := v.View()
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) > v.height {
+		t.Fatalf("CatalogView.View() produced %d lines, strictly exceeding max height %d", len(lines), v.height)
+	}
+
+	if !strings.Contains(lines[0], "刀剑神域") {
+		t.Errorf("expected line 0 to contain book title, got: %s", lines[0])
 	}
 }
