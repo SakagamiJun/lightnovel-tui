@@ -34,7 +34,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		store:       store,
 		src:         src,
 		currentView: common.ViewBookshelf,
-		statusText:  "按 [Tab] 切换书架/在线搜索, [Enter] 确认, [q] 退出",
+		statusText:  "[Tab] 切换书架/在线搜索  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [q] 退出",
 	}
 
 	m.bookshelfView = views.NewBookshelfView(store, func(bookID string) tea.Cmd {
