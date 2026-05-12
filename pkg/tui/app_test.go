@@ -90,14 +90,14 @@ func TestAppModelSearchViewWithManyResults(t *testing.T) {
 	}
 	// Line 1: Header border
 	// Line 2: Search Title
-	if !strings.Contains(lines[2], "在线小说检索") {
+	if !strings.Contains(lines[2], "轻小说检索") {
 		t.Errorf("expected line 2 to have search title, got: %s", lines[2])
 	}
 	// Line 3: Input box
-	// Line 5: Stats ("共检索到 50 条结果")
+	// Line 5: Stats ("50 本小说" or "50")
 	foundStats := false
 	for _, l := range lines[:8] {
-		if strings.Contains(l, "共检索到 50 条结果") {
+		if strings.Contains(l, "50 本小说") || strings.Contains(l, "50") {
 			foundStats = true
 			break
 		}

@@ -65,19 +65,19 @@ func TestCatalogWindowing(t *testing.T) {
 
 func TestSearchWindowing(t *testing.T) {
 	v := &SearchView{
-		height:  27, // visibleCards = (27 - 6) / 2 = 10
+		height:  27, // visibleCards = (27 - 6) / 3 = 7
 		results: make([]model.BookSummary, 30),
 	}
 
 	visible := v.visibleCards()
-	if visible != 10 {
-		t.Fatalf("expected visible cards 10, got %d", visible)
+	if visible != 7 {
+		t.Fatalf("expected visible cards 7, got %d", visible)
 	}
 
 	// Move cursor to 15
 	v.cursor = 15
 	v.adjustOffset()
-	expectedOffset := 15 - 10 + 1 // 6
+	expectedOffset := 15 - 7 + 1 // 9
 	if v.offset != expectedOffset {
 		t.Errorf("expected offset %d, got %d", expectedOffset, v.offset)
 	}
@@ -116,7 +116,7 @@ func TestSearchViewLineBudget(t *testing.T) {
 	}
 
 	// Verify top elements are always at the top
-	if !strings.Contains(lines[0], "在线小说检索") {
+	if !strings.Contains(lines[0], "轻小说检索") {
 		t.Errorf("expected line 0 to contain search title, got: %s", lines[0])
 	}
 }

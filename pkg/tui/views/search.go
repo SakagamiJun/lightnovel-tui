@@ -38,10 +38,14 @@ type SearchView struct {
 // NewSearchView creates an interactive search view.
 func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) *SearchView {
 	ti := textinput.New()
-	ti.Placeholder = "输入书名或作者 (回车开始检索)..."
+	ti.Placeholder = "输入书名或作者名，按 [Enter] 开始检索..."
 	ti.Focus()
 	ti.CharLimit = 50
-	ti.Width = 40
+	ti.Width = 46
+	ti.Prompt = " 🔍 检索轻小说: "
+	ti.PromptStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight)
+	ti.TextStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
 
 	return &SearchView{
 		src:      src,
@@ -75,12 +79,12 @@ func (v *SearchView) SetResults(results []model.BookSummary) {
 func (v *SearchView) visibleCards() int {
 	// Fixed lines:
 	// Header (1) + Input (1) + Spacer (1) + Stats (1) + TopInd (1) + BotInd (1) = 6 lines.
-	// Each search item takes exactly 2 lines.
+	// Each modern card takes exactly 3 lines.
 	avail := v.height - 6
-	if avail < 2 {
+	if avail < 3 {
 		return 1
 	}
-	cards := avail / 2
+	cards := avail / 3
 	if cards < 1 {
 		cards = 1
 	}
@@ -233,34 +237,47 @@ func (v *SearchView) View() string {
 	var sb strings.Builder
 
 	header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render("🔍 在线小说检索 (Wenku8)")
+		Render("🔍 在线轻小说检索 (Wenku8)")
 	sb.WriteString(header + "\n")
-	sb.WriteString(v.input.View() + "\n\n")
+
+	maxWidth := v.width - 2
+	if maxWidth < 30 {
+		maxWidth = 30
+	}
+
+	inputBar := lipgloss.NewStyle().
+		Background(theme.BarBg).
+		Width(maxWidth).
+		Render(v.input.View())
+	sb.WriteString(inputBar + "\n\n")
 
 	if v.searching {
-		sb.WriteString("⏳ 正在网络检索中，请稍候...\n")
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
+			Render("⏳ 正在网络检索中，请稍候...") + "\n")
 		return sb.String()
 	}
 
 	if v.err != nil {
-		sb.WriteString(fmt.Sprintf("❌ 检索出错: %v\n", v.err))
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentRose).
+			Render(fmt.Sprintf("❌ 检索出错: %v", v.err)) + "\n")
 		return sb.String()
 	}
 
 	if len(v.results) == 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render("请输入关键词并按 [Enter] 开始搜索。"))
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextDim).
+			Render("💡 请在上方输入关键词并按 [Enter] 开始搜索。") + "\n")
 		return sb.String()
 	}
 
 	curPos := v.cursor + 1
-	focusHint := "[/ 或 Esc] 输入关键词"
+	focusHint := "[/ 或 Esc] 激活搜索框"
 	if v.input.Focused() {
-		focusHint = "[Enter] 搜索, [↓] 选择结果"
+		focusHint = "[Enter] 检索  •  [↓] 结果列表"
 	}
-	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
-		Render(fmt.Sprintf("共检索到 %d 条结果 (%d/%d) - [↑/↓/滚轮] 选择, [Enter] 查看目录, %s",
-			len(v.results), curPos, len(v.results), focusHint)) + "\n")
+	statsText := fmt.Sprintf(" 📚 找到 %d 本小说  •  当前 [%d/%d]  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  %s",
+		len(v.results), curPos, len(v.results), focusHint)
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
+		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
 
 	v.adjustOffset()
 	visible := v.visibleCards()
@@ -270,29 +287,42 @@ func (v *SearchView) View() string {
 		end = len(v.results)
 	}
 
-	maxWidth := v.width - 2
-	if maxWidth < 30 {
-		maxWidth = 30
-	}
-
 	// Top fold indicator (strictly 1 line)
 	if start > 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▲ 上方还有 %d 条结果 (向上滚动查看)", start)) + "\n")
+		msg := fmt.Sprintf("  ▲ 上方还有 %d 部小说已折叠 (向上滚动查看) ", start)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
 			Render(strings.Repeat("─", maxWidth)) + "\n")
 	}
 
+	const (
+		barActive       = "▎ ▶ "
+		barActiveIndent = "▎   "
+		barInactive     = "│   "
+	)
+
 	for i := start; i < end; i++ {
 		b := v.results[i]
 		isSelected := i == v.cursor && !v.input.Focused()
 
-		indicator := "  "
-		if isSelected {
-			indicator = "▶ "
+		// Badges
+		var statusBadge string
+		if b.IsComplete {
+			statusBadge = theme.BadgeSuccess.Render("完结")
+		} else {
+			statusBadge = theme.BadgeWarning.Render("连载")
 		}
+		pubBadge := theme.BadgeInfo.Render(b.Publisher)
+		idBadge := theme.BadgeMuted.Render("#" + b.ID)
+		badgeStr := fmt.Sprintf("%s %s %s", statusBadge, pubBadge, idBadge)
 
+		// Description cleanup
 		desc := strings.ReplaceAll(b.Description, "\r", " ")
 		desc = strings.ReplaceAll(desc, "\n", " ")
 		desc = strings.TrimSpace(desc)
@@ -300,38 +330,87 @@ func (v *SearchView) View() string {
 			desc = "暂无简介"
 		}
 
-		line1Raw := fmt.Sprintf("%s%s (ID: %s)  %s · %s · %d字",
-			indicator, b.Title, b.ID, b.Author, b.Publisher, b.WordCount)
-		line2Raw := fmt.Sprintf("    简介: %s", desc)
-
-		line1Trunc := runewidth.Truncate(line1Raw, maxWidth, "...")
-		line2Trunc := runewidth.Truncate(line2Raw, maxWidth, "...")
+		wordCountStr := theme.FormatWordCount(b.WordCount)
 
 		if isSelected {
-			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
-				Background(theme.HighlightBg).Width(maxWidth).Render(line1Trunc))
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
-				Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc))
-			sb.WriteString("\n")
+			// Line 1: Title + Badges
+			prefix := barActive
+			badgesWidth := runewidth.StringWidth(badgeStr)
+			prefixWidth := runewidth.StringWidth(prefix)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
+			if titleBudget < 8 {
+				titleBudget = 8
+			}
+			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
+			line1Content := fmt.Sprintf("%s%s  %s", prefix,
+				lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc),
+				badgeStr)
+			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
+
+			// Line 2: Meta Info
+			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    🏷️ 文库: %s",
+				barActiveIndent, b.Author, wordCountStr, b.Publisher)
+			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
+
+			// Line 3: Description Preview
+			descContent := fmt.Sprintf("%s💬 简介: %s", barActiveIndent, desc)
+			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
+
+			sb.WriteString(line1 + "\n")
+			sb.WriteString(line2 + "\n")
+			sb.WriteString(line3 + "\n")
 		} else {
-			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
-				Width(maxWidth).Render(line1Trunc))
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-				Width(maxWidth).Render(line2Trunc))
-			sb.WriteString("\n")
+			// Line 1: Title + Badges
+			prefix := barInactive
+			badgesWidth := runewidth.StringWidth(badgeStr)
+			prefixWidth := runewidth.StringWidth(prefix)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
+			if titleBudget < 8 {
+				titleBudget = 8
+			}
+			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
+			line1Content := fmt.Sprintf("%s%s  %s", prefix,
+				lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc),
+				badgeStr)
+			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
+
+			// Line 2: Meta Info
+			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    🏷️ 文库: %s",
+				barInactive, b.Author, wordCountStr, b.Publisher)
+			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
+
+			// Line 3: Description Preview
+			descContent := fmt.Sprintf("%s💬 简介: %s", barInactive, desc)
+			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
+
+			sb.WriteString(line1 + "\n")
+			sb.WriteString(line2 + "\n")
+			sb.WriteString(line3 + "\n")
 		}
 	}
 
 	// Bottom fold indicator (strictly 1 line)
 	if end < len(v.results) {
 		remaining := len(v.results) - end
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▼ 下方还有 %d 条结果 (向下滚动查看)", remaining)) + "\n")
+		msg := fmt.Sprintf("  ▼ 下方还有 %d 部小说已折叠 (向下滚动查看) ", remaining)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render("  ✓ 已显示到底部") + "\n")
+		msg := fmt.Sprintf("  ✓ 已显示全部 %d 部搜索结果 ", len(v.results))
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentEmerald).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	}
 
 	return sb.String()
