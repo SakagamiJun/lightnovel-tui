@@ -259,9 +259,10 @@ func (v *CatalogView) View() string {
 	if v.detail != nil {
 		curPos := v.cursor + 1
 		total := len(v.flatItems)
-		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-			Render(runewidth.Truncate(fmt.Sprintf("📖 %s (%d/%d 项) - [↑/↓/滚轮]移动, [Enter]阅读, [Esc]返回",
-				v.detail.Title, curPos, total), maxWidth, "..."))
+		headerText := fmt.Sprintf(" 📖 %s  •  当前 [%d/%d 项]  •  [↑/↓/滚轮] 选择  •  [Enter] 阅读  •  [Esc] 返回",
+			v.detail.Title, curPos, total)
+		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
+			Render(runewidth.Truncate(headerText, maxWidth, "..."))
 		sb.WriteString(header + "\n")
 	}
 
@@ -275,8 +276,13 @@ func (v *CatalogView) View() string {
 
 	// Top indicator if truncated
 	if start > 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▲ 上方还有 %d 项被折叠 (按 [g] 回到顶部)", start)) + "\n")
+		msg := fmt.Sprintf("  ▲ 上方还有 %d 项已折叠 (按 [g] 到顶部) ", start)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
 			Render(strings.Repeat("─", maxWidth)) + "\n")
@@ -287,21 +293,28 @@ func (v *CatalogView) View() string {
 		item := v.flatItems[i]
 		isSelected := i == v.cursor
 		if item.isVolume {
-			volStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentColor)
-			line := runewidth.Truncate("📁 "+item.volTitle, maxWidth, "...")
-			sb.WriteString(volStyle.Render(line))
+			volBadge := theme.BadgeInfo.Render("分卷")
+			volText := fmt.Sprintf(" 📦 %s %s ", item.volTitle, volBadge)
+			ruleLen := maxWidth - runewidth.StringWidth(volText)
+			if ruleLen < 0 {
+				ruleLen = 0
+			}
+			volLine := volText + strings.Repeat("─", ruleLen)
+			volLineTrunc := runewidth.Truncate(volLine, maxWidth, "...")
+			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).
+				Render(volLineTrunc))
 			sb.WriteString("\n")
 		} else {
-			prefix := "    "
 			if isSelected {
-				prefix = "  ▶ "
+				prefix := "  ▎ ▶ "
 				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
-				sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
+				sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).
 					Background(theme.HighlightBg).Width(maxWidth).Render(line))
 				sb.WriteString("\n")
 			} else {
+				prefix := "    │ "
 				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
-				sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
+				sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextWhite).
 					Width(maxWidth).Render(line))
 				sb.WriteString("\n")
 			}
@@ -311,11 +324,21 @@ func (v *CatalogView) View() string {
 	// Bottom indicator if truncated
 	if end < len(v.flatItems) {
 		remaining := len(v.flatItems) - end
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▼ 下方还有 %d 项被折叠 (按 [G] 跳到底部)", remaining)) + "\n")
+		msg := fmt.Sprintf("  ▼ 下方还有 %d 项已折叠 (按 [G] 跳到底部) ", remaining)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render("  ✓ 已显示到底部") + "\n")
+		msg := "  ✓ 已显示全部分卷与章节 "
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentEmerald).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	}
 
 	return sb.String()

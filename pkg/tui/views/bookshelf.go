@@ -59,12 +59,12 @@ func (v *BookshelfView) SetSize(width, height int) {
 
 func (v *BookshelfView) visibleCards() int {
 	// Fixed lines: TitleBar (1) + TopInd (1) + BotInd (1) = 3 lines.
-	// Each book item takes exactly 2 lines.
+	// Each modern card takes exactly 3 lines.
 	avail := v.height - 3
-	if avail < 2 {
+	if avail < 3 {
 		return 1
 	}
-	cards := avail / 2
+	cards := avail / 3
 	if cards < 1 {
 		cards = 1
 	}
@@ -164,18 +164,26 @@ func (v *BookshelfView) View() string {
 		v.Reload()
 	}
 
+	maxWidth := v.width - 2
+	if maxWidth < 30 {
+		maxWidth = 30
+	}
+
 	if len(v.books) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(theme.MutedColor).
-			Padding(4, 2).
-			Align(lipgloss.Center)
-		return emptyStyle.Render("📚 本地书架空空如也~\n\n按 [Tab] 切换到在线搜索，或者输入关键词开始检索小说下载阅读！")
+		emptyBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(theme.BorderColor).
+			Padding(2, 4).
+			Align(lipgloss.Center).
+			Render("📚 本地书架空空如也~\n\n尚未缓存任何轻小说\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
+		return emptyBox
 	}
 
 	var sb strings.Builder
 	curPos := v.cursor + 1
+	titleText := fmt.Sprintf(" 📖 本地藏书库 (%d/%d 本)  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
 	titleBar := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render(fmt.Sprintf("📖 本地藏书 (%d/%d 本) - [↑/↓/滚轮] 选择, [Enter] 打开目录, [r] 刷新", curPos, len(v.books)))
+		Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	sb.WriteString(titleBar + "\n")
 
 	v.adjustOffset()
@@ -186,73 +194,127 @@ func (v *BookshelfView) View() string {
 		end = len(v.books)
 	}
 
-	maxWidth := v.width - 2
-	if maxWidth < 30 {
-		maxWidth = 30
-	}
-
 	if start > 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▲ 上方还有 %d 本藏书被折叠 (按 [g] 到顶部)", start)) + "\n")
+		msg := fmt.Sprintf("  ▲ 上方还有 %d 本藏书已折叠 (按 [g] 到顶部) ", start)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
 			Render(strings.Repeat("─", maxWidth)) + "\n")
 	}
 
-	// Render windowed slice of books
+	const (
+		barActive       = "▎ ▶ "
+		barActiveIndent = "▎   "
+		barInactive     = "│   "
+	)
+
 	for i := start; i < end; i++ {
 		b := v.books[i]
 		isSelected := i == v.cursor
-		indicator := "  "
-		if isSelected {
-			indicator = "▶ "
-		}
 
-		status := "连载中"
+		// Badges
+		var statusBadge string
 		if b.IsComplete {
-			status = "已完结"
+			statusBadge = theme.BadgeSuccess.Render("完结")
+		} else {
+			statusBadge = theme.BadgeWarning.Render("连载")
 		}
+		pubBadge := theme.BadgeInfo.Render(b.Publisher)
+		idBadge := theme.BadgeMuted.Render("#" + b.ID)
+		badgeStr := fmt.Sprintf("%s %s %s", statusBadge, pubBadge, idBadge)
 
 		desc := strings.ReplaceAll(b.Description, "\r", " ")
 		desc = strings.ReplaceAll(desc, "\n", " ")
 		desc = strings.TrimSpace(desc)
 		if desc == "" {
 			desc = "已缓存到本地，按 [Enter] 查看分卷目录"
-		} else {
-			desc = "简介: " + desc
 		}
 
-		line1Raw := fmt.Sprintf("%s%s (ID: %s)  %s · %s · %s · %d字",
-			indicator, b.Title, b.ID, b.Author, b.Publisher, status, b.WordCount)
-		line2Raw := fmt.Sprintf("    %s", desc)
-
-		line1Trunc := runewidth.Truncate(line1Raw, maxWidth, "...")
-		line2Trunc := runewidth.Truncate(line2Raw, maxWidth, "...")
+		wordCountStr := theme.FormatWordCount(b.WordCount)
 
 		if isSelected {
-			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).
-				Background(theme.HighlightBg).Width(maxWidth).Render(line1Trunc))
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentColor).
-				Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc))
-			sb.WriteString("\n")
+			// Line 1: Title + Badges
+			prefix := barActive
+			badgesWidth := runewidth.StringWidth(badgeStr)
+			prefixWidth := runewidth.StringWidth(prefix)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
+			if titleBudget < 8 {
+				titleBudget = 8
+			}
+			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
+			line1Content := fmt.Sprintf("%s%s  %s", prefix,
+				lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc),
+				badgeStr)
+			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
+
+			// Line 2: Meta Info
+			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    💾 状态: 本地已缓存",
+				barActiveIndent, b.Author, wordCountStr)
+			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
+
+			// Line 3: Description Preview
+			descContent := fmt.Sprintf("%s💬 简介: %s", barActiveIndent, desc)
+			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
+
+			sb.WriteString(line1 + "\n")
+			sb.WriteString(line2 + "\n")
+			sb.WriteString(line3 + "\n")
 		} else {
-			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#CCCCCC")).
-				Width(maxWidth).Render(line1Trunc))
-			sb.WriteString("\n")
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-				Width(maxWidth).Render(line2Trunc))
-			sb.WriteString("\n")
+			// Line 1: Title + Badges
+			prefix := barInactive
+			badgesWidth := runewidth.StringWidth(badgeStr)
+			prefixWidth := runewidth.StringWidth(prefix)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
+			if titleBudget < 8 {
+				titleBudget = 8
+			}
+			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
+			line1Content := fmt.Sprintf("%s%s  %s", prefix,
+				lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc),
+				badgeStr)
+			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
+
+			// Line 2: Meta Info
+			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    💾 状态: 本地已缓存",
+				barInactive, b.Author, wordCountStr)
+			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
+
+			// Line 3: Description Preview
+			descContent := fmt.Sprintf("%s💬 简介: %s", barInactive, desc)
+			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
+
+			sb.WriteString(line1 + "\n")
+			sb.WriteString(line2 + "\n")
+			sb.WriteString(line3 + "\n")
 		}
 	}
 
 	if end < len(v.books) {
 		remaining := len(v.books) - end
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render(fmt.Sprintf("  ▼ 下方还有 %d 本藏书被折叠 (按 [G] 到底部)", remaining)) + "\n")
+		msg := fmt.Sprintf("  ▼ 下方还有 %d 本藏书已折叠 (按 [G] 到底部) ", remaining)
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.MutedColor).
-			Render("  ✓ 已显示到底部") + "\n")
+		msg := fmt.Sprintf("  ✓ 已显示全部 %d 本藏书 ", len(v.books))
+		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		if ruleLen < 0 {
+			ruleLen = 0
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentEmerald).
+			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	}
 
 	return sb.String()

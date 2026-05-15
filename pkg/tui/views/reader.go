@@ -154,8 +154,21 @@ func (v *ReaderView) View() string {
 		title = v.reader.CurrentChapter().Title
 	}
 
-	header := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentColor).
-		Render(fmt.Sprintf("📖 %s  (进度: %.1f%%) - [j/k/空格] 翻页, [Esc] 退出", title, v.viewport.ScrollPercent()*100))
+	percent := v.viewport.ScrollPercent() * 100
+	progressBadge := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#38BDF8")).
+		Background(lipgloss.Color("#0C4A6E")).
+		Padding(0, 1).
+		Render(fmt.Sprintf("%.1f%%", percent))
+
+	keyHints := lipgloss.NewStyle().Foreground(theme.TextMuted).
+		Render("[j/k/滚轮/空格] 翻页  •  [Esc] 返回目录")
+
+	header := fmt.Sprintf(" 📖 %s  %s    %s",
+		lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(title),
+		progressBadge,
+		keyHints)
 
 	return header + "\n\n" + v.viewport.View()
 }
