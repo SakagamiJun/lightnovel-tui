@@ -112,3 +112,49 @@ func TestAppModelSearchViewWithManyResults(t *testing.T) {
 		t.Errorf("expected last line to be status bar, got: %s", lastLine)
 	}
 }
+
+func TestAppModelBookshelfViewWithManyResults(t *testing.T) {
+	app := NewAppModel(nil, nil)
+	height := 24
+	width := 80
+
+	app.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	app.Update(common.SwitchViewMsg{Target: common.ViewBookshelf})
+
+	// Inject 20 cached books
+	books := make([]model.BookDetail, 20)
+	for i := 0; i < 20; i++ {
+		books[i] = model.BookDetail{
+			BookSummary: model.BookSummary{
+				ID:          "1001",
+				Title:       "刀剑神域",
+				Author:      "川原砾",
+				Publisher:   "电击文库",
+				WordCount:   2800000,
+				Description: "艾恩葛朗特攻略故事...",
+			},
+		}
+	}
+	app.bookshelfView.SetBooks(books)
+
+	view := app.View()
+	lines := strings.Split(view, "\n")
+
+	if len(lines) != height {
+		t.Fatalf("expected exactly %d lines on height %d with 20 books, got %d", height, height, len(lines))
+	}
+
+	// Line 0: Header tabs
+	if !strings.Contains(lines[0], "LNR") {
+		t.Errorf("expected line 0 to have LNR header, got: %s", lines[0])
+	}
+	// Line 2: Bookshelf Title
+	if !strings.Contains(lines[2], "本地藏书库") {
+		t.Errorf("expected line 2 to have bookshelf title, got: %s", lines[2])
+	}
+	// Last line: status bar
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "Tab") {
+		t.Errorf("expected last line to be status bar, got: %s", lastLine)
+	}
+}

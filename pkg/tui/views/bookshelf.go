@@ -45,6 +45,14 @@ func (v *BookshelfView) Reload() {
 	v.loaded = true
 }
 
+// SetBooks sets cached books directly (for testing and external feeds).
+func (v *BookshelfView) SetBooks(books []model.BookDetail) {
+	v.books = books
+	v.loaded = true
+	v.cursor = 0
+	v.offset = 0
+}
+
 func (v *BookshelfView) Init() tea.Cmd {
 	return func() tea.Msg {
 		v.Reload()
