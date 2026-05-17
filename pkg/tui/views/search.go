@@ -42,7 +42,7 @@ func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) 
 	ti.Focus()
 	ti.CharLimit = 50
 	ti.Width = 46
-	ti.Prompt = " 🔍 检索轻小说: "
+	ti.Prompt = " 检索轻小说: "
 	ti.PromptStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight)
 	ti.TextStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite)
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
@@ -237,7 +237,7 @@ func (v *SearchView) View() string {
 	var sb strings.Builder
 
 	header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render("🔍 在线轻小说检索 (Wenku8)")
+		Render("在线轻小说检索 (Wenku8)")
 	sb.WriteString(header + "\n")
 
 	maxWidth := v.width - 2
@@ -253,19 +253,19 @@ func (v *SearchView) View() string {
 
 	if v.searching {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
-			Render("⏳ 正在网络检索中，请稍候...") + "\n")
+			Render("[检索中] 正在联网检索，请稍候...") + "\n")
 		return sb.String()
 	}
 
 	if v.err != nil {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentRose).
-			Render(fmt.Sprintf("❌ 检索出错: %v", v.err)) + "\n")
+			Render(fmt.Sprintf("[错误] 检索出错: %v", v.err)) + "\n")
 		return sb.String()
 	}
 
 	if len(v.results) == 0 {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextDim).
-			Render("💡 请在上方输入关键词并按 [Enter] 开始搜索。") + "\n")
+			Render("提示: 请在上方输入关键词并按 [Enter] 开始搜索。") + "\n")
 		return sb.String()
 	}
 
@@ -274,7 +274,7 @@ func (v *SearchView) View() string {
 	if v.input.Focused() {
 		focusHint = "[Enter] 检索  •  [↓] 结果列表"
 	}
-	statsText := fmt.Sprintf(" 📚 找到 %d 本小说  •  当前 [%d/%d]  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  %s",
+	statsText := fmt.Sprintf(" 找到 %d 本小说  •  当前 [%d/%d]  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  %s",
 		len(v.results), curPos, len(v.results), focusHint)
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
 		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
@@ -348,13 +348,13 @@ func (v *SearchView) View() string {
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
 			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    🏷️ 文库: %s",
+			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    文库: %s",
 				barActiveIndent, b.Author, wordCountStr, b.Publisher)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
-			descContent := fmt.Sprintf("%s💬 简介: %s", barActiveIndent, desc)
+			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
 			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
 
@@ -377,13 +377,13 @@ func (v *SearchView) View() string {
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
 			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    🏷️ 文库: %s",
+			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    文库: %s",
 				barInactive, b.Author, wordCountStr, b.Publisher)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
-			descContent := fmt.Sprintf("%s💬 简介: %s", barInactive, desc)
+			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
 			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
 
@@ -404,7 +404,7 @@ func (v *SearchView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		msg := fmt.Sprintf("  ✓ 已显示全部 %d 部搜索结果 ", len(v.results))
+		msg := fmt.Sprintf("  [全部] 已显示全部 %d 部搜索结果 ", len(v.results))
 		ruleLen := maxWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0

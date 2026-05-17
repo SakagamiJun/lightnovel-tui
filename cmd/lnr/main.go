@@ -56,7 +56,7 @@ func main() {
 			}
 
 			keyword := args[0]
-			fmt.Printf("🔍 正在搜索: %q (第 %d 页)...\n", keyword, page)
+			fmt.Printf("[搜索] 正在检索: %q (第 %d 页)...\n", keyword, page)
 
 			results, totalPages, err := src.Search(context.Background(), searchType, keyword, page)
 			if err != nil {
@@ -75,29 +75,15 @@ func main() {
 				if book.IsComplete {
 					completeStatus = "已完结"
 				}
-				fmt.Printf("[%d] ID: %-6s | %s\n", i+1, book.ID, book.Title)
-				if book.Subtitle != "" {
-					fmt.Printf("    副标题: %s\n", book.Subtitle)
-				}
-				fmt.Printf("    作者: %-12s | 文库: %-10s | 状态: %s | 字数: %d\n",
-					book.Author, book.Publisher, completeStatus, book.WordCount)
-				if len(book.Tags) > 0 {
-					fmt.Printf("    Tags: %s\n", strings.Join(book.Tags, ", "))
-				}
-				if book.Description != "" {
-					desc := book.Description
-					if len([]rune(desc)) > 60 {
-						desc = string([]rune(desc)[:60]) + "..."
-					}
-					fmt.Printf("    简介: %s\n", desc)
-				}
-				fmt.Println(strings.Repeat("-", 80))
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, completeStatus, book.WordCount, book.ID)
 			}
+			fmt.Println(strings.Repeat("-", 80))
 			return nil
 		},
 	}
-	searchCmd.Flags().BoolP("author", "a", false, "按作者名搜索")
-	searchCmd.Flags().IntP("page", "p", 1, "搜索结果页码")
+	searchCmd.Flags().BoolP("author", "a", false, "按作者名搜索 (默认为按书名)")
+	searchCmd.Flags().IntP("page", "p", 1, "搜索结果分页页码")
 
 	// 2. info command
 	infoCmd := &cobra.Command{
@@ -108,7 +94,7 @@ func main() {
 			bookID := args[0]
 			ctx := context.Background()
 
-			fmt.Printf("📖 正在获取书籍详情 (ID: %s)...\n", bookID)
+			fmt.Printf("[详情] 正在获取书籍详情 (ID: %s)...\n", bookID)
 			detail, err := src.GetBookDetail(ctx, bookID)
 			if err != nil {
 				return fmt.Errorf("获取详情失败: %w", err)
@@ -211,17 +197,17 @@ func main() {
 			}
 
 			for _, item := range volumesToDownload {
-				fmt.Printf("\n⬇️ 开始下载第 [%d/%d] 卷: %s\n", item.idx, len(catalog.Volumes), item.vol.Title)
+				fmt.Printf("\n[下载] 开始下载第 [%d/%d] 卷: %s\n", item.idx, len(catalog.Volumes), item.vol.Title)
 				err := dl.DownloadVolume(ctx, bookID, item.vol, func(ev downloader.ProgressEvent) {
 					fmt.Printf("\r  [%d/%d] (%.1f%%) 正在处理: %-30s", ev.Current, ev.Total, ev.Percentage, ev.ItemTitle)
 				})
 				if err != nil {
 					return fmt.Errorf("\n下载卷 %s 失败: %w", item.vol.Title, err)
 				}
-				fmt.Println("\n  ✓ 该卷下载完成！")
+				fmt.Println("\n  [完成] 该卷下载完成！")
 			}
 
-			fmt.Println("\n🎉 下载任务全部完成！缓存位于:", store.BookDir(bookID))
+			fmt.Println("\n[完成] 下载任务全部完成！缓存位于:", store.BookDir(bookID))
 			return nil
 		},
 	}
@@ -242,19 +228,19 @@ func main() {
 			exporter := epub.NewExporter(store, dl)
 
 			if targetVol > 0 {
-				fmt.Printf("📦 正在导出书籍 %s 的第 %d 卷为 EPUB...\n", bookID, targetVol)
+				fmt.Printf("[导出] 正在导出书籍 %s 的第 %d 卷为 EPUB...\n", bookID, targetVol)
 				outFile, err := exporter.ExportVolume(ctx, bookID, targetVol, outputPath)
 				if err != nil {
 					return fmt.Errorf("导出分卷 EPUB 失败: %w", err)
 				}
-				fmt.Printf("🎉 成功导出分卷 EPUB 文件: %s\n", outFile)
+				fmt.Printf("[完成] 成功导出分卷 EPUB 文件: %s\n", outFile)
 			} else {
-				fmt.Printf("📦 正在导出书籍 %s 的全本为 EPUB...\n", bookID)
+				fmt.Printf("[导出] 正在导出书籍 %s 的全本为 EPUB...\n", bookID)
 				outFile, err := exporter.ExportFullBook(ctx, bookID, outputPath)
 				if err != nil {
 					return fmt.Errorf("导出全本 EPUB 失败: %w", err)
 				}
-				fmt.Printf("🎉 成功导出全本 EPUB 文件: %s\n", outFile)
+				fmt.Printf("[完成] 成功导出全本 EPUB 文件: %s\n", outFile)
 			}
 			return nil
 		},

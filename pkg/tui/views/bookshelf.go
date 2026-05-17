@@ -183,13 +183,13 @@ func (v *BookshelfView) View() string {
 			BorderForeground(theme.BorderColor).
 			Padding(2, 4).
 			Align(lipgloss.Center).
-			Render("📚 本地书架空空如也~\n\n尚未缓存任何轻小说\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
+			Render("本地书架暂无藏书\n\n尚未缓存任何轻小说\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
 		return emptyBox
 	}
 
 	var sb strings.Builder
 	curPos := v.cursor + 1
-	titleText := fmt.Sprintf(" 📖 本地藏书库 (%d/%d 本)  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
+	titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
 	titleBar := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 		Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	sb.WriteString(titleBar + "\n")
@@ -261,13 +261,13 @@ func (v *BookshelfView) View() string {
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
 			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    💾 状态: 本地已缓存",
+			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    状态: 本地已缓存",
 				barActiveIndent, b.Author, wordCountStr)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
-			descContent := fmt.Sprintf("%s💬 简介: %s", barActiveIndent, desc)
+			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
 			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
 
@@ -290,13 +290,13 @@ func (v *BookshelfView) View() string {
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
 			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s👤 作者: %s    📊 字数: %s    💾 状态: 本地已缓存",
+			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    状态: 本地已缓存",
 				barInactive, b.Author, wordCountStr)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
-			descContent := fmt.Sprintf("%s💬 简介: %s", barInactive, desc)
+			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
 			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
 
@@ -316,7 +316,7 @@ func (v *BookshelfView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		msg := fmt.Sprintf("  ✓ 已显示全部 %d 本藏书 ", len(v.books))
+		msg := fmt.Sprintf("  [全部] 已显示全部 %d 本藏书 ", len(v.books))
 		ruleLen := maxWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0

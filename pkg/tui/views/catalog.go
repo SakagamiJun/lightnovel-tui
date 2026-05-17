@@ -240,14 +240,14 @@ func (v *CatalogView) flattenItems() {
 
 func (v *CatalogView) View() string {
 	if v.loading {
-		return "\n⏳ 正在获取小说分卷目录，请稍候..."
+		return "\n[加载中] 正在获取小说分卷目录，请稍候..."
 	}
 	if v.err != nil {
-		return fmt.Sprintf("\n❌ 获取目录失败: %v\n按 [Esc] 返回书架", v.err)
+		return fmt.Sprintf("\n[错误] 获取目录失败: %v\n按 [Esc] 返回书架", v.err)
 	}
 
 	if len(v.flatItems) == 0 {
-		return "\n📖 暂无目录内容。按 [Esc] 返回书架"
+		return "\n暂无目录内容。按 [Esc] 返回书架"
 	}
 
 	var sb strings.Builder
@@ -259,7 +259,7 @@ func (v *CatalogView) View() string {
 	if v.detail != nil {
 		curPos := v.cursor + 1
 		total := len(v.flatItems)
-		headerText := fmt.Sprintf(" 📖 %s  •  当前 [%d/%d 项]  •  [↑/↓/滚轮] 选择  •  [Enter] 阅读  •  [Esc] 返回",
+		headerText := fmt.Sprintf(" %s  •  当前 [%d/%d 项]  •  [↑/↓/滚轮] 选择  •  [Enter] 阅读  •  [Esc] 返回",
 			v.detail.Title, curPos, total)
 		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
 			Render(runewidth.Truncate(headerText, maxWidth, "..."))
@@ -294,7 +294,7 @@ func (v *CatalogView) View() string {
 		isSelected := i == v.cursor
 		if item.isVolume {
 			volBadge := theme.BadgeInfo.Render("分卷")
-			volText := fmt.Sprintf(" 📦 %s %s ", item.volTitle, volBadge)
+			volText := fmt.Sprintf(" [分卷] %s %s ", item.volTitle, volBadge)
 			ruleLen := maxWidth - runewidth.StringWidth(volText)
 			if ruleLen < 0 {
 				ruleLen = 0
@@ -332,7 +332,7 @@ func (v *CatalogView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		msg := "  ✓ 已显示全部分卷与章节 "
+		msg := "  [全部] 已显示全部分卷与章节 "
 		ruleLen := maxWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0

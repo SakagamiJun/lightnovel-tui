@@ -85,7 +85,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusText = string(msg)
 
 	case common.ErrorMsg:
-		m.statusText = fmt.Sprintf("❌ 错误: %v", msg)
+		m.statusText = fmt.Sprintf("[错误] %v", msg)
 
 	case common.SwitchViewMsg:
 		m.currentView = msg.Target
@@ -142,20 +142,20 @@ func (m *AppModel) View() string {
 	}
 
 	// 1. Top Header Bar with Tabs (strictly 2 lines: tabs + bottom border line)
-	title := theme.AppTitleStyle.Render("📖 LNR 轻小说")
+	title := theme.AppTitleStyle.Render("LNR 轻小说")
 	var tabBookshelf, tabSearch string
 	if m.currentView == common.ViewBookshelf {
-		tabBookshelf = theme.TabActiveStyle.Render("📚 本地书架 (Tab)")
-		tabSearch = theme.TabInactiveStyle.Render("🔍 在线搜索 (Tab)")
+		tabBookshelf = theme.TabActiveStyle.Render("本地书架 (Tab)")
+		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
 	} else if m.currentView == common.ViewSearch {
-		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架 (Tab)")
-		tabSearch = theme.TabActiveStyle.Render("🔍 在线搜索 (Tab)")
+		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
+		tabSearch = theme.TabActiveStyle.Render("在线搜索 (Tab)")
 	} else if m.currentView == common.ViewCatalog {
-		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架")
-		tabSearch = theme.TabActiveStyle.Render("📖 目录分卷")
+		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
+		tabSearch = theme.TabActiveStyle.Render("目录分卷")
 	} else {
-		tabBookshelf = theme.TabInactiveStyle.Render("📚 本地书架")
-		tabSearch = theme.TabActiveStyle.Render("👓 沉浸阅读")
+		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
+		tabSearch = theme.TabActiveStyle.Render("沉浸阅读")
 	}
 
 	header := lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch)

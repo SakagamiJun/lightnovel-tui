@@ -143,10 +143,10 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 
 func (v *ReaderView) View() string {
 	if v.loading {
-		return "\n⏳ 正在获取正文内容，请稍候..."
+		return "\n[加载中] 正在获取正文内容，请稍候..."
 	}
 	if v.err != nil {
-		return fmt.Sprintf("\n❌ 加载正文出错: %v\n按 [Esc] 返回目录", v.err)
+		return fmt.Sprintf("\n[错误] 加载正文出错: %v\n按 [Esc] 返回目录", v.err)
 	}
 
 	title := ""
@@ -165,7 +165,7 @@ func (v *ReaderView) View() string {
 	keyHints := lipgloss.NewStyle().Foreground(theme.TextMuted).
 		Render("[j/k/滚轮/空格] 翻页  •  [Esc] 返回目录")
 
-	header := fmt.Sprintf(" 📖 %s  %s    %s",
+	header := fmt.Sprintf(" %s  %s    %s",
 		lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(title),
 		progressBadge,
 		keyHints)
