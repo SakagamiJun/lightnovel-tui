@@ -15,32 +15,65 @@ import (
 
 // BookshelfView displays locally cached novels with cursor navigation.
 type BookshelfView struct {
-	store    *storage.Storage
-	books    []model.BookDetail
-	cursor   int
-	offset   int
-	width    int
-	height   int
-	loaded   bool
-	onSelect func(bookID string) tea.Cmd
+	store         *storage.Storage
+	books         []model.BookDetail
+	pinnedSet     map[string]bool
+	cursor        int
+	offset        int
+	width         int
+	height        int
+	loaded        bool
+	confirmDelete bool
+	onSelect      func(bookID string) tea.Cmd
 }
 
 // NewBookshelfView constructs bookshelf model.
 func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.Cmd) *BookshelfView {
 	return &BookshelfView{
-		store:    store,
-		books:    make([]model.BookDetail, 0),
-		onSelect: onSelect,
+		store:     store,
+		books:     make([]model.BookDetail, 0),
+		pinnedSet: make(map[string]bool),
+		onSelect:  onSelect,
 	}
 }
 
-// ReloadLoads cached books from storage.
+// ReloadLoads cached books from storage and partitions pinned books to the top.
 func (v *BookshelfView) Reload() {
 	if v.store != nil {
 		books, err := v.store.ListCachedBooks()
 		if err == nil {
-			v.books = books
+			pinnedIDs, _ := v.store.GetPinnedBookIDs()
+			v.pinnedSet = make(map[string]bool, len(pinnedIDs))
+			for _, id := range pinnedIDs {
+				v.pinnedSet[id] = true
+			}
+
+			// Partition books: pinned books first in order, then unpinned books
+			bookMap := make(map[string]model.BookDetail, len(books))
+			for _, b := range books {
+				bookMap[b.ID] = b
+			}
+
+			orderedBooks := make([]model.BookDetail, 0, len(books))
+			for _, id := range pinnedIDs {
+				if b, ok := bookMap[id]; ok {
+					orderedBooks = append(orderedBooks, b)
+					delete(bookMap, id)
+				}
+			}
+			for _, b := range books {
+				if _, ok := bookMap[b.ID]; ok {
+					orderedBooks = append(orderedBooks, b)
+				}
+			}
+			v.books = orderedBooks
 		}
+	}
+	if v.pinnedSet == nil {
+		v.pinnedSet = make(map[string]bool)
+	}
+	if v.cursor >= len(v.books) && len(v.books) > 0 {
+		v.cursor = len(v.books) - 1
 	}
 	v.loaded = true
 }
@@ -48,6 +81,9 @@ func (v *BookshelfView) Reload() {
 // SetBooks sets cached books directly (for testing and external feeds).
 func (v *BookshelfView) SetBooks(books []model.BookDetail) {
 	v.books = books
+	if v.pinnedSet == nil {
+		v.pinnedSet = make(map[string]bool)
+	}
 	v.loaded = true
 	v.cursor = 0
 	v.offset = 0
@@ -115,6 +151,30 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if v.confirmDelete {
+			switch msg.String() {
+			case "y", "Y":
+				if len(v.books) > 0 && v.cursor < len(v.books) {
+					b := v.books[v.cursor]
+					if v.store != nil {
+						_ = v.store.DeleteBook(b.ID)
+					}
+					v.confirmDelete = false
+					v.Reload()
+					return v, func() tea.Msg {
+						return common.StatusMsg(fmt.Sprintf("已删除《%s》本地缓存及章节", b.Title))
+					}
+				}
+				v.confirmDelete = false
+			case "n", "N", "esc":
+				v.confirmDelete = false
+				return v, func() tea.Msg {
+					return common.StatusMsg("已取消删除操作")
+				}
+			}
+			return v, nil
+		}
+
 		visible := v.visibleCards()
 		switch msg.String() {
 		case "up", "k":
@@ -146,6 +206,33 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 			if len(v.books) > 0 {
 				v.cursor = len(v.books) - 1
 				v.adjustOffset()
+			}
+		case "p":
+			if len(v.books) > 0 && v.cursor < len(v.books) {
+				b := v.books[v.cursor]
+				if v.store != nil {
+					pinnedNow, _ := v.store.TogglePinBook(b.ID)
+					v.Reload()
+					for idx, bk := range v.books {
+						if bk.ID == b.ID {
+							v.cursor = idx
+							break
+						}
+					}
+					v.adjustOffset()
+					statusText := fmt.Sprintf("已置顶《%s》", b.Title)
+					if !pinnedNow {
+						statusText = fmt.Sprintf("已取消置顶《%s》", b.Title)
+					}
+					return v, func() tea.Msg {
+						return common.StatusMsg(statusText)
+					}
+				}
+			}
+		case "d", "x", "delete":
+			if len(v.books) > 0 && v.cursor < len(v.books) {
+				v.confirmDelete = true
+				return v, nil
 			}
 		case "enter":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
@@ -189,9 +276,16 @@ func (v *BookshelfView) View() string {
 
 	var sb strings.Builder
 	curPos := v.cursor + 1
-	titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
-	titleBar := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render(runewidth.Truncate(titleText, maxWidth, "..."))
+	var titleBar string
+	if v.confirmDelete && v.cursor < len(v.books) {
+		delPrompt := fmt.Sprintf(" [确认删除] 确认删除《%s》本地缓存？按 [y] 确认 / 按 [n/Esc] 取消", v.books[v.cursor].Title)
+		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).
+			Render(runewidth.Truncate(delPrompt, maxWidth, "..."))
+	} else {
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶/取消  •  [d/x] 删除  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
+		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
+			Render(runewidth.Truncate(titleText, maxWidth, "..."))
+	}
 	sb.WriteString(titleBar + "\n")
 
 	v.adjustOffset()
@@ -226,6 +320,10 @@ func (v *BookshelfView) View() string {
 		isSelected := i == v.cursor
 
 		// Badges
+		var pinBadge string
+		if v.pinnedSet != nil && v.pinnedSet[b.ID] {
+			pinBadge = theme.BadgeWarning.Render("置顶") + " "
+		}
 		var statusBadge string
 		if b.IsComplete {
 			statusBadge = theme.BadgeSuccess.Render("完结")
@@ -234,7 +332,7 @@ func (v *BookshelfView) View() string {
 		}
 		pubBadge := theme.BadgeInfo.Render(b.Publisher)
 		idBadge := theme.BadgeMuted.Render("#" + b.ID)
-		badgeStr := fmt.Sprintf("%s %s %s", statusBadge, pubBadge, idBadge)
+		badgeStr := fmt.Sprintf("%s%s %s %s", pinBadge, statusBadge, pubBadge, idBadge)
 
 		desc := strings.ReplaceAll(b.Description, "\r", " ")
 		desc = strings.ReplaceAll(desc, "\n", " ")

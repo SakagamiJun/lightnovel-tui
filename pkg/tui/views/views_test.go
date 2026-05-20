@@ -1,10 +1,13 @@
 package views
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"lnr-core/pkg/model"
+	"lnr-core/pkg/storage"
 )
 
 func TestCatalogWindowing(t *testing.T) {
@@ -177,5 +180,77 @@ func TestCatalogViewLineBudget(t *testing.T) {
 
 	if !strings.Contains(lines[0], "刀剑神域") {
 		t.Errorf("expected line 0 to contain book title, got: %s", lines[0])
+	}
+}
+
+func TestBookshelfPinningAndDeletion(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "bookshelf-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+
+	b1 := &model.BookDetail{BookSummary: model.BookSummary{ID: "1001", Title: "小说A", Author: "作者A"}}
+	b2 := &model.BookDetail{BookSummary: model.BookSummary{ID: "1002", Title: "小说B", Author: "作者B"}}
+	_ = store.SaveBookDetail(b1)
+	_ = store.SaveBookDetail(b2)
+
+	v := NewBookshelfView(store, nil)
+	v.SetSize(80, 24)
+	v.Reload()
+
+	if len(v.books) != 2 {
+		t.Fatalf("expected 2 books, got %d", len(v.books))
+	}
+
+	// 1. Initially book at cursor 0 is b1 (or b2)
+	// Press 'p' to pin current book
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	currentBookID := v.books[v.cursor].ID
+	if !store.IsBookPinned(currentBookID) {
+		t.Errorf("expected book %s to be pinned in storage", currentBookID)
+	}
+
+	viewStr := v.View()
+	if !strings.Contains(viewStr, "置顶") {
+		t.Errorf("expected bookshelf view to render '置顶' badge")
+	}
+
+	// Line budget check
+	lines := strings.Split(strings.TrimSuffix(viewStr, "\n"), "\n")
+	if len(lines) > v.height {
+		t.Errorf("expected lines <= %d, got %d", v.height, len(lines))
+	}
+
+	// 2. Press 'd' to initiate deletion
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if !v.confirmDelete {
+		t.Errorf("expected confirmDelete to be true after pressing 'd'")
+	}
+	viewDel := v.View()
+	if !strings.Contains(viewDel, "确认删除") {
+		t.Errorf("expected view to show '确认删除' prompt")
+	}
+	delLines := strings.Split(strings.TrimSuffix(viewDel, "\n"), "\n")
+	if len(delLines) > v.height {
+		t.Errorf("expected confirm delete lines <= %d, got %d", v.height, len(delLines))
+	}
+
+	// 3. Cancel with 'n'
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if v.confirmDelete {
+		t.Errorf("expected confirmDelete to be false after pressing 'n'")
+	}
+
+	// 4. Delete with 'd' then 'y'
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if len(v.books) != 1 {
+		t.Fatalf("expected 1 book remaining after delete, got %d", len(v.books))
 	}
 }
