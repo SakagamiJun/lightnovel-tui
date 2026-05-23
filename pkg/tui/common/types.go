@@ -6,6 +6,7 @@ type ViewID int
 const (
 	ViewBookshelf ViewID = iota
 	ViewSearch
+	ViewSettings
 	ViewCatalog
 	ViewReader
 )

@@ -24,6 +24,7 @@ type AppModel struct {
 
 	bookshelfView *views.BookshelfView
 	searchView    *views.SearchView
+	settingsView  *views.SettingsView
 	catalogView   *views.CatalogView
 	readerView    *views.ReaderView
 }
@@ -34,7 +35,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		store:       store,
 		src:         src,
 		currentView: common.ViewBookshelf,
-		statusText:  "[Tab] 切换书架/在线搜索  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [q] 退出",
+		statusText:  "[Tab] 切换导航栏  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [q] 退出",
 	}
 
 	m.bookshelfView = views.NewBookshelfView(store, func(bookID string) tea.Cmd {
@@ -46,6 +47,8 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
+
+	m.settingsView = views.NewSettingsView(store)
 
 	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {
 		m.currentView = common.ViewReader
@@ -62,6 +65,7 @@ func (m *AppModel) Init() tea.Cmd {
 		tea.EnterAltScreen,
 		m.bookshelfView.Init(),
 		m.searchView.Init(),
+		m.settingsView.Init(),
 	)
 }
 
@@ -78,6 +82,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.bookshelfView.SetSize(m.width, contentHeight)
 		m.searchView.SetSize(m.width, contentHeight)
+		m.settingsView.SetSize(m.width, contentHeight)
 		m.catalogView.SetSize(m.width, contentHeight)
 		m.readerView.SetSize(m.width, contentHeight)
 
@@ -102,13 +107,28 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.currentView == common.ViewBookshelf && msg.String() == "q" {
+		if (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSettings) && msg.String() == "q" {
 			return m, tea.Quit
 		}
-		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch) {
-			if m.currentView == common.ViewBookshelf {
+		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || m.currentView == common.ViewSettings) {
+			switch m.currentView {
+			case common.ViewBookshelf:
 				m.currentView = common.ViewSearch
-			} else {
+			case common.ViewSearch:
+				m.currentView = common.ViewSettings
+			case common.ViewSettings:
+				m.currentView = common.ViewBookshelf
+				m.bookshelfView.Reload()
+			}
+			return m, nil
+		}
+		if msg.String() == "shift+tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || m.currentView == common.ViewSettings) {
+			switch m.currentView {
+			case common.ViewBookshelf:
+				m.currentView = common.ViewSettings
+			case common.ViewSettings:
+				m.currentView = common.ViewSearch
+			case common.ViewSearch:
 				m.currentView = common.ViewBookshelf
 				m.bookshelfView.Reload()
 			}
@@ -124,6 +144,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	case common.ViewSearch:
 		m.searchView, cmd = m.searchView.Update(msg)
+		cmds = append(cmds, cmd)
+	case common.ViewSettings:
+		m.settingsView, cmd = m.settingsView.Update(msg)
 		cmds = append(cmds, cmd)
 	case common.ViewCatalog:
 		m.catalogView, cmd = m.catalogView.Update(msg)
@@ -143,22 +166,37 @@ func (m *AppModel) View() string {
 
 	// 1. Top Header Bar with Tabs (strictly 2 lines: tabs + bottom border line)
 	title := theme.AppTitleStyle.Render("LNR 轻小说")
-	var tabBookshelf, tabSearch string
+	var tabBookshelf, tabSearch, tabSettings, tabExtra string
 	if m.currentView == common.ViewBookshelf {
 		tabBookshelf = theme.TabActiveStyle.Render("本地书架 (Tab)")
 		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
+		tabSettings = theme.TabInactiveStyle.Render("系统设置 (Tab)")
 	} else if m.currentView == common.ViewSearch {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
 		tabSearch = theme.TabActiveStyle.Render("在线搜索 (Tab)")
+		tabSettings = theme.TabInactiveStyle.Render("系统设置 (Tab)")
+	} else if m.currentView == common.ViewSettings {
+		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
+		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
+		tabSettings = theme.TabActiveStyle.Render("系统设置 (Tab)")
 	} else if m.currentView == common.ViewCatalog {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
-		tabSearch = theme.TabActiveStyle.Render("目录分卷")
+		tabSearch = theme.TabInactiveStyle.Render("在线搜索")
+		tabSettings = theme.TabInactiveStyle.Render("系统设置")
+		tabExtra = theme.TabActiveStyle.Render("目录分卷")
 	} else {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
-		tabSearch = theme.TabActiveStyle.Render("沉浸阅读")
+		tabSearch = theme.TabInactiveStyle.Render("在线搜索")
+		tabSettings = theme.TabInactiveStyle.Render("系统设置")
+		tabExtra = theme.TabActiveStyle.Render("沉浸阅读")
 	}
 
-	header := lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch)
+	var header string
+	if tabExtra != "" {
+		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch, tabSettings, tabExtra)
+	} else {
+		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch, tabSettings)
+	}
 	headerRendered := theme.HeaderStyle.Width(m.width).Render(header)
 
 	// 2. Bottom Status Bar (strictly 1 line)
@@ -177,6 +215,8 @@ func (m *AppModel) View() string {
 		body = m.bookshelfView.View()
 	case common.ViewSearch:
 		body = m.searchView.View()
+	case common.ViewSettings:
+		body = m.settingsView.View()
 	case common.ViewCatalog:
 		body = m.catalogView.View()
 	case common.ViewReader:

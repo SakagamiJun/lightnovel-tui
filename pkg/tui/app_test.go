@@ -158,3 +158,66 @@ func TestAppModelBookshelfViewWithManyResults(t *testing.T) {
 		t.Errorf("expected last line to be status bar, got: %s", lastLine)
 	}
 }
+
+func TestSettingsViewAndTabCycling(t *testing.T) {
+	app := NewAppModel(nil, nil)
+	height := 24
+	width := 80
+	app.Update(tea.WindowSizeMsg{Width: width, Height: height})
+
+	// Initial view is Bookshelf
+	if app.currentView != common.ViewBookshelf {
+		t.Fatalf("expected initial view to be Bookshelf, got %v", app.currentView)
+	}
+
+	// 1. Tab to Search
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.currentView != common.ViewSearch {
+		t.Fatalf("expected view Search after Tab, got %v", app.currentView)
+	}
+
+	// 2. Tab to Settings
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.currentView != common.ViewSettings {
+		t.Fatalf("expected view Settings after Tab, got %v", app.currentView)
+	}
+
+	// Verify Settings line budget and content
+	view := app.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("expected exactly %d lines for settings, got %d", height, len(lines))
+	}
+	if !strings.Contains(lines[0], "系统设置") {
+		t.Errorf("expected tab header to contain '系统设置', got: %s", lines[0])
+	}
+	if !strings.Contains(view, "本地缓存目录") || !strings.Contains(view, "沉浸阅读步长") {
+		t.Errorf("expected settings view to contain core setting items")
+	}
+
+	// Test settings interactions
+	// Move cursor down to item 2 (scrollStep)
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if app.settingsView.Cursor() != 2 {
+		t.Errorf("expected cursor at 2, got %d", app.settingsView.Cursor())
+	}
+	initialStep := app.settingsView.ScrollStep()
+	// Press Enter to cycle step
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.settingsView.ScrollStep() == initialStep {
+		t.Errorf("expected scrollStep to cycle from %d", initialStep)
+	}
+
+	// 3. Tab back to Bookshelf
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.currentView != common.ViewBookshelf {
+		t.Fatalf("expected view Bookshelf after 3rd Tab, got %v", app.currentView)
+	}
+
+	// 4. Shift+Tab backwards to Settings
+	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if app.currentView != common.ViewSettings {
+		t.Fatalf("expected view Settings after Shift+Tab, got %v", app.currentView)
+	}
+}
