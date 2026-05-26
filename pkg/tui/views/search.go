@@ -23,16 +23,18 @@ type searchResultMsg struct {
 
 // SearchView handles interactive search with textinput.
 type SearchView struct {
-	src       source.DataSource
-	input     textinput.Model
-	results   []model.BookSummary
-	cursor    int
-	offset    int
-	searching bool
-	err       error
-	width     int
-	height    int
-	onSelect  func(bookID string) tea.Cmd
+	src        source.DataSource
+	input      textinput.Model
+	results    []model.BookSummary
+	cursor     int
+	offset     int
+	searching  bool
+	err        error
+	width      int
+	height     int
+	onSelect   func(bookID string) tea.Cmd
+	onDownload func(bookID string) tea.Cmd
+	onExport   func(bookID string) tea.Cmd
 }
 
 // NewSearchView creates an interactive search view.
@@ -53,6 +55,16 @@ func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) 
 		results:  make([]model.BookSummary, 0),
 		onSelect: onSelect,
 	}
+}
+
+// SetOnDownload registers download callback.
+func (v *SearchView) SetOnDownload(fn func(bookID string) tea.Cmd) {
+	v.onDownload = fn
+}
+
+// SetOnExport registers export callback.
+func (v *SearchView) SetOnExport(fn func(bookID string) tea.Cmd) {
+	v.onExport = fn
 }
 
 func (v *SearchView) Init() tea.Cmd {
@@ -218,6 +230,18 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 				v.cursor = len(v.results) - 1
 				v.adjustOffset()
 			}
+		case "d", "c":
+			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+				if v.onDownload != nil {
+					return v, v.onDownload(v.results[v.cursor].ID)
+				}
+			}
+		case "e":
+			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+				if v.onExport != nil {
+					return v, v.onExport(v.results[v.cursor].ID)
+				}
+			}
 		case "esc", "/":
 			if !v.input.Focused() {
 				v.input.Focus()
@@ -270,11 +294,11 @@ func (v *SearchView) View() string {
 	}
 
 	curPos := v.cursor + 1
-	focusHint := "[/ 或 Esc] 激活搜索框"
+	focusHint := "[d] 下载全本  •  [e] 导出EPUB  •  [/] 输入框"
 	if v.input.Focused() {
 		focusHint = "[Enter] 检索  •  [↓] 结果列表"
 	}
-	statsText := fmt.Sprintf(" 找到 %d 本小说  •  当前 [%d/%d]  •  [↑/↓/滚轮] 选择  •  [Enter] 查看目录  •  %s",
+	statsText := fmt.Sprintf(" 找到 %d 本小说  •  当前 [%d/%d]  •  [Enter] 目录  •  %s",
 		len(v.results), curPos, len(v.results), focusHint)
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
 		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")

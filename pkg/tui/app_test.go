@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"lnr-core/pkg/model"
+	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 )
 
@@ -219,5 +222,114 @@ func TestSettingsViewAndTabCycling(t *testing.T) {
 	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if app.currentView != common.ViewSettings {
 		t.Fatalf("expected view Settings after Shift+Tab, got %v", app.currentView)
+	}
+}
+
+func TestSanitizeFileName(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"刀剑神域: 进击篇", "刀剑神域__进击篇"},
+		{"Re:从零开始/异世界?生活*1", "Re_从零开始_异世界_生活_1"},
+	}
+	for _, tc := range cases {
+		out := sanitizeFileName(tc.input)
+		if out != tc.expected {
+			t.Errorf("expected %q, got %q", tc.expected, out)
+		}
+	}
+}
+
+func TestProgressUpdateAndExportTask(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "app-ops-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	bookID := "test_export_book"
+	detail := &model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:     bookID,
+			Title:  "测试导出小说",
+			Author: "测试作者",
+		},
+	}
+	_ = store.SaveBookDetail(detail)
+
+	catalog := &model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{
+			{
+				ID:    "v1",
+				Title: "第一卷",
+				Chapters: []model.Chapter{
+					{ID: "c1", Title: "第一章"},
+				},
+			},
+		},
+	}
+	_ = store.SaveCatalog(catalog)
+
+	ch := &model.ChapterContent{
+		BookID: bookID,
+		ID:     "c1",
+		Title:  "第一章",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "正文第一段内容。"},
+		},
+	}
+	_ = store.SaveChapter(ch)
+
+	app := NewAppModel(store, nil)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Test progressUpdateMsg handling
+	app.Update(progressUpdateMsg{text: "[下载中] 测试下载进行中..."})
+	if app.statusText != "[下载中] 测试下载进行中..." {
+		t.Errorf("expected statusText to update with progress, got: %s", app.statusText)
+	}
+
+	// Test export task with pre-cached book
+	cmd := startExportTask(nil, store, bookID, 0)
+	if cmd == nil {
+		t.Fatalf("expected non-nil cmd from startExportTask")
+	}
+
+	// Read messages from cmd until done
+	timeout := time.After(5 * time.Second)
+	completed := false
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting for export task to finish")
+		default:
+			msg := cmd()
+			if msg == nil {
+				completed = true
+				break
+			}
+			if pMsg, ok := msg.(progressUpdateMsg); ok {
+				app.Update(pMsg)
+				if strings.Contains(pMsg.text, "[完成]") {
+					completed = true
+					break
+				}
+				cmd = listenProgress(pMsg.sub)
+			}
+		}
+		if completed {
+			break
+		}
+	}
+
+	if !strings.Contains(app.statusText, "[完成]") {
+		t.Errorf("expected statusText to indicate [完成], got: %s", app.statusText)
 	}
 }

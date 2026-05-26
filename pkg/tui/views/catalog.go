@@ -24,23 +24,26 @@ type catalogResultMsg struct {
 
 // CatalogView renders the volume and chapter tree of a novel.
 type CatalogView struct {
-	store     *storage.Storage
-	src       source.DataSource
-	bookID    string
-	detail    *model.BookDetail
-	catalog   *model.BookCatalog
-	cursor    int
-	offset    int
-	flatItems []flatChapterItem
-	loading   bool
-	err       error
-	width     int
-	height    int
-	onSelect  func(bookID, chapterID string) tea.Cmd
+	store      *storage.Storage
+	src        source.DataSource
+	bookID     string
+	detail     *model.BookDetail
+	catalog    *model.BookCatalog
+	cursor     int
+	offset     int
+	flatItems  []flatChapterItem
+	loading    bool
+	err        error
+	width      int
+	height     int
+	onSelect   func(bookID, chapterID string) tea.Cmd
+	onDownload func(bookID string, volumeIndex int) tea.Cmd
+	onExport   func(bookID string, volumeIndex int) tea.Cmd
 }
 
 type flatChapterItem struct {
 	isVolume bool
+	volIndex int
 	volTitle string
 	chapID   string
 	title    string
@@ -54,6 +57,16 @@ func NewCatalogView(store *storage.Storage, src source.DataSource, onSelect func
 		flatItems: make([]flatChapterItem, 0),
 		onSelect:  onSelect,
 	}
+}
+
+// SetOnDownload registers download callback.
+func (v *CatalogView) SetOnDownload(fn func(bookID string, volumeIndex int) tea.Cmd) {
+	v.onDownload = fn
+}
+
+// SetOnExport registers export callback.
+func (v *CatalogView) SetOnExport(fn func(bookID string, volumeIndex int) tea.Cmd) {
+	v.onExport = fn
 }
 
 // LoadBook triggers fetching catalog for a given book ID.
@@ -205,6 +218,28 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 					}
 				}
 			}
+		case "d", "c":
+			if len(v.flatItems) > 0 && v.cursor < len(v.flatItems) {
+				item := v.flatItems[v.cursor]
+				if item.isVolume && v.onDownload != nil {
+					return v, v.onDownload(v.bookID, item.volIndex)
+				}
+			}
+		case "e":
+			if len(v.flatItems) > 0 && v.cursor < len(v.flatItems) {
+				item := v.flatItems[v.cursor]
+				if item.isVolume && v.onExport != nil {
+					return v, v.onExport(v.bookID, item.volIndex)
+				}
+			}
+		case "D", "C":
+			if v.onDownload != nil {
+				return v, v.onDownload(v.bookID, 0)
+			}
+		case "E":
+			if v.onExport != nil {
+				return v, v.onExport(v.bookID, 0)
+			}
 		case "esc":
 			return v, func() tea.Msg {
 				return common.SwitchViewMsg{
@@ -221,15 +256,17 @@ func (v *CatalogView) flattenItems() {
 	if v.catalog == nil {
 		return
 	}
-	for _, vol := range v.catalog.Volumes {
+	for vi, vol := range v.catalog.Volumes {
 		v.flatItems = append(v.flatItems, flatChapterItem{
 			isVolume: true,
+			volIndex: vi + 1,
 			volTitle: vol.Title,
 			title:    vol.Title,
 		})
 		for _, ch := range vol.Chapters {
 			v.flatItems = append(v.flatItems, flatChapterItem{
 				isVolume: false,
+				volIndex: vi + 1,
 				volTitle: vol.Title,
 				chapID:   ch.ID,
 				title:    ch.Title,
@@ -259,7 +296,7 @@ func (v *CatalogView) View() string {
 	if v.detail != nil {
 		curPos := v.cursor + 1
 		total := len(v.flatItems)
-		headerText := fmt.Sprintf(" %s  •  当前 [%d/%d 项]  •  [↑/↓/滚轮] 选择  •  [Enter] 阅读  •  [Esc] 返回",
+		headerText := fmt.Sprintf(" %s  •  [%d/%d 项]  •  [Enter] 阅读  •  [d] 缓存分卷  •  [e] 导出分卷  •  [D] 缓存全本",
 			v.detail.Title, curPos, total)
 		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
 			Render(runewidth.Truncate(headerText, maxWidth, "..."))

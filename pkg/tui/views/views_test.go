@@ -254,3 +254,77 @@ func TestBookshelfPinningAndDeletion(t *testing.T) {
 		t.Fatalf("expected 1 book remaining after delete, got %d", len(v.books))
 	}
 }
+
+func TestViewsDownloadAndExportCallbacks(t *testing.T) {
+	// 1. Bookshelf export callback
+	bExportID := ""
+	bv := &BookshelfView{
+		books: []model.BookDetail{{BookSummary: model.BookSummary{ID: "book_shelf_1"}}},
+	}
+	bv.SetOnExport(func(bookID string) tea.Cmd {
+		bExportID = bookID
+		return nil
+	})
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if bExportID != "book_shelf_1" {
+		t.Errorf("expected bookshelf export callback with 'book_shelf_1', got %q", bExportID)
+	}
+
+	// 2. Search download and export callback
+	sDownloadID := ""
+	sExportID := ""
+	sv := &SearchView{
+		results: []model.BookSummary{{ID: "book_search_1"}},
+	}
+	sv.input.Blur() // ensure results have focus
+	sv.SetOnDownload(func(bookID string) tea.Cmd {
+		sDownloadID = bookID
+		return nil
+	})
+	sv.SetOnExport(func(bookID string) tea.Cmd {
+		sExportID = bookID
+		return nil
+	})
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if sDownloadID != "book_search_1" {
+		t.Errorf("expected search download callback with 'book_search_1', got %q", sDownloadID)
+	}
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if sExportID != "book_search_1" {
+		t.Errorf("expected search export callback with 'book_search_1', got %q", sExportID)
+	}
+
+	// 3. Catalog volume download and full export callback
+	cDownloadVol := -1
+	cDownloadBookID := ""
+	cExportVol := -1
+	cExportBookID := ""
+	cv := &CatalogView{
+		bookID: "book_cat_1",
+		flatItems: []flatChapterItem{
+			{isVolume: true, volIndex: 2, volTitle: "第二卷"},
+		},
+	}
+	cv.SetOnDownload(func(bookID string, volumeIndex int) tea.Cmd {
+		cDownloadBookID = bookID
+		cDownloadVol = volumeIndex
+		return nil
+	})
+	cv.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
+		cExportBookID = bookID
+		cExportVol = volumeIndex
+		return nil
+	})
+
+	// Press 'd' on volume
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cDownloadBookID != "book_cat_1" || cDownloadVol != 2 {
+		t.Errorf("expected catalog volume download for vol 2, got book=%s vol=%d", cDownloadBookID, cDownloadVol)
+	}
+
+	// Press 'E' for full book export
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+	if cExportBookID != "book_cat_1" || cExportVol != 0 {
+		t.Errorf("expected catalog full book export (vol 0), got book=%s vol=%d", cExportBookID, cExportVol)
+	}
+}

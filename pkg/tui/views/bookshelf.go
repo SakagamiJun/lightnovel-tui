@@ -25,6 +25,7 @@ type BookshelfView struct {
 	loaded        bool
 	confirmDelete bool
 	onSelect      func(bookID string) tea.Cmd
+	onExport      func(bookID string) tea.Cmd
 }
 
 // NewBookshelfView constructs bookshelf model.
@@ -35,6 +36,11 @@ func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.C
 		pinnedSet: make(map[string]bool),
 		onSelect:  onSelect,
 	}
+}
+
+// SetOnExport registers export callback.
+func (v *BookshelfView) SetOnExport(fn func(bookID string) tea.Cmd) {
+	v.onExport = fn
 }
 
 // ReloadLoads cached books from storage and partitions pinned books to the top.
@@ -234,6 +240,10 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 				v.confirmDelete = true
 				return v, nil
 			}
+		case "e":
+			if len(v.books) > 0 && v.cursor < len(v.books) && v.onExport != nil {
+				return v, v.onExport(v.books[v.cursor].ID)
+			}
 		case "enter":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
 				selectedID := v.books[v.cursor].ID
@@ -282,7 +292,7 @@ func (v *BookshelfView) View() string {
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).
 			Render(runewidth.Truncate(delPrompt, maxWidth, "..."))
 	} else {
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶/取消  •  [d/x] 删除  •  [Enter] 查看目录  •  [r] 刷新", curPos, len(v.books))
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶  •  [d/x] 删除  •  [e] 导出EPUB  •  [Enter] 目录  •  [r] 刷新", curPos, len(v.books))
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 			Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	}

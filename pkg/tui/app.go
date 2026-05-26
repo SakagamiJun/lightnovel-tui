@@ -42,10 +42,21 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
+	m.bookshelfView.SetOnExport(func(bookID string) tea.Cmd {
+		return startExportTask(src, store, bookID, 0)
+	})
 
 	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
+	})
+	m.searchView.SetOnDownload(func(bookID string) tea.Cmd {
+		return startDownloadTask(src, store, bookID, 0, func() {
+			m.bookshelfView.Reload()
+		})
+	})
+	m.searchView.SetOnExport(func(bookID string) tea.Cmd {
+		return startExportTask(src, store, bookID, 0)
 	})
 
 	m.settingsView = views.NewSettingsView(store)
@@ -53,6 +64,14 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {
 		m.currentView = common.ViewReader
 		return m.readerView.OpenChapter(bookID, chapterID)
+	})
+	m.catalogView.SetOnDownload(func(bookID string, volumeIndex int) tea.Cmd {
+		return startDownloadTask(src, store, bookID, volumeIndex, func() {
+			m.bookshelfView.Reload()
+		})
+	})
+	m.catalogView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
+		return startExportTask(src, store, bookID, volumeIndex)
 	})
 
 	m.readerView = views.NewReaderView(store, src)
@@ -85,6 +104,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settingsView.SetSize(m.width, contentHeight)
 		m.catalogView.SetSize(m.width, contentHeight)
 		m.readerView.SetSize(m.width, contentHeight)
+
+	case progressUpdateMsg:
+		m.statusText = msg.text
+		return m, listenProgress(msg.sub)
 
 	case common.StatusMsg:
 		m.statusText = string(msg)
