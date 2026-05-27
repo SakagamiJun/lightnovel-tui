@@ -328,3 +328,33 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 		t.Errorf("expected catalog full book export (vol 0), got book=%s vol=%d", cExportBookID, cExportVol)
 	}
 }
+
+func TestLongBookTitleDisplayWithoutPrematureTruncation(t *testing.T) {
+	longTitle := "普通攻击是全体二连击这样的妈妈你喜欢吗" // 20 Chinese characters = 40 width
+
+	// Bookshelf view on 80-width terminal
+	bv := &BookshelfView{
+		width:  80,
+		height: 24,
+		books: []model.BookDetail{
+			{BookSummary: model.BookSummary{ID: "1001", Title: longTitle, Author: "井中大吉"}},
+		},
+		loaded: true,
+	}
+	bOut := bv.View()
+	if !strings.Contains(bOut, longTitle) {
+		t.Errorf("expected bookshelf to contain full title without premature truncation: %s", bOut)
+	}
+
+	// Search view on 80-width terminal
+	sv := &SearchView{
+		width:   80,
+		height:  24,
+		results: []model.BookSummary{{ID: "1001", Title: longTitle, Author: "井中大吉"}},
+	}
+	sv.input.Blur()
+	sOut := sv.View()
+	if !strings.Contains(sOut, longTitle) {
+		t.Errorf("expected search to contain full title without premature truncation: %s", sOut)
+	}
+}

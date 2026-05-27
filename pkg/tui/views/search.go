@@ -335,16 +335,11 @@ func (v *SearchView) View() string {
 		b := v.results[i]
 		isSelected := i == v.cursor && !v.input.Focused()
 
-		// Badges
-		var statusBadge string
+		// Badges for Line 1: only essential status
+		var line1Badges string
 		if b.IsComplete {
-			statusBadge = theme.BadgeSuccess.Render("完结")
-		} else {
-			statusBadge = theme.BadgeWarning.Render("连载")
+			line1Badges = theme.BadgeSuccess.Render("完结")
 		}
-		pubBadge := theme.BadgeInfo.Render(b.Publisher)
-		idBadge := theme.BadgeMuted.Render("#" + b.ID)
-		badgeStr := fmt.Sprintf("%s %s %s", statusBadge, pubBadge, idBadge)
 
 		// Description cleanup
 		desc := strings.ReplaceAll(b.Description, "\r", " ")
@@ -355,25 +350,46 @@ func (v *SearchView) View() string {
 		}
 
 		wordCountStr := theme.FormatWordCount(b.WordCount)
+		pubStr := b.Publisher
+		if pubStr == "" {
+			pubStr = "未知文库"
+		}
+		statusStr := "连载中"
+		if b.IsComplete {
+			statusStr = "已完结"
+		}
 
 		if isSelected {
-			// Line 1: Title + Badges
+			// Line 1: Full Book Title + Minimal Badges
 			prefix := barActive
-			badgesWidth := runewidth.StringWidth(badgeStr)
-			prefixWidth := runewidth.StringWidth(prefix)
-			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
-			if titleBudget < 8 {
-				titleBudget = 8
+			prefixWidth := lipgloss.Width(prefix)
+			badgesWidth := lipgloss.Width(line1Badges)
+			extraGap := 0
+			if line1Badges != "" {
+				extraGap = 2
 			}
-			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
-			line1Content := fmt.Sprintf("%s%s  %s", prefix,
-				lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc),
-				badgeStr)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - extraGap
+			if titleBudget < 10 {
+				titleBudget = 10
+			}
+			titleTrunc := b.Title
+			if runewidth.StringWidth(b.Title) > titleBudget {
+				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+			}
+			var line1Content string
+			if line1Badges != "" {
+				line1Content = fmt.Sprintf("%s%s  %s", prefix,
+					lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc),
+					line1Badges)
+			} else {
+				line1Content = fmt.Sprintf("%s%s", prefix,
+					lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc))
+			}
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
-			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    文库: %s",
-				barActiveIndent, b.Author, wordCountStr, b.Publisher)
+			// Line 2: Rich Meta Info
+			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+				barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
@@ -386,23 +402,36 @@ func (v *SearchView) View() string {
 			sb.WriteString(line2 + "\n")
 			sb.WriteString(line3 + "\n")
 		} else {
-			// Line 1: Title + Badges
+			// Line 1: Full Book Title + Minimal Badges
 			prefix := barInactive
-			badgesWidth := runewidth.StringWidth(badgeStr)
-			prefixWidth := runewidth.StringWidth(prefix)
-			titleBudget := maxWidth - prefixWidth - badgesWidth - 2
-			if titleBudget < 8 {
-				titleBudget = 8
+			prefixWidth := lipgloss.Width(prefix)
+			badgesWidth := lipgloss.Width(line1Badges)
+			extraGap := 0
+			if line1Badges != "" {
+				extraGap = 2
 			}
-			titleTrunc := runewidth.Truncate(b.Title, titleBudget, "...")
-			line1Content := fmt.Sprintf("%s%s  %s", prefix,
-				lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc),
-				badgeStr)
+			titleBudget := maxWidth - prefixWidth - badgesWidth - extraGap
+			if titleBudget < 10 {
+				titleBudget = 10
+			}
+			titleTrunc := b.Title
+			if runewidth.StringWidth(b.Title) > titleBudget {
+				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+			}
+			var line1Content string
+			if line1Badges != "" {
+				line1Content = fmt.Sprintf("%s%s  %s", prefix,
+					lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc),
+					line1Badges)
+			} else {
+				line1Content = fmt.Sprintf("%s%s", prefix,
+					lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc))
+			}
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
-			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    字数: %s    文库: %s",
-				barInactive, b.Author, wordCountStr, b.Publisher)
+			// Line 2: Rich Meta Info
+			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+				barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
