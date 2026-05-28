@@ -34,7 +34,20 @@ func NewStorage(baseDir string) (*Storage, error) {
 
 // BaseDir returns the root cache directory.
 func (s *Storage) BaseDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.baseDir
+}
+
+// SetBaseDir updates the root cache directory, creating it if needed.
+func (s *Storage) SetBaseDir(newDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	s.baseDir = newDir
+	return nil
 }
 
 // BookDir returns the path for a given book.

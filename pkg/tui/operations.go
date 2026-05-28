@@ -132,7 +132,7 @@ func startDownloadTask(src source.DataSource, store *storage.Storage, bookID str
 	return listenProgress(ch)
 }
 
-func startExportTask(src source.DataSource, store *storage.Storage, bookID string, volumeIndex int) tea.Cmd {
+func startExportTask(src source.DataSource, store *storage.Storage, bookID string, volumeIndex int, customExportDir string) tea.Cmd {
 	ch := make(chan string, 16)
 
 	go func() {
@@ -174,8 +174,11 @@ func startExportTask(src source.DataSource, store *storage.Storage, bookID strin
 			_ = store.SaveCatalog(catalog)
 		}
 
-		home, _ := os.UserHomeDir()
-		exportDir := filepath.Join(home, ".lnr", "exports")
+		exportDir := customExportDir
+		if exportDir == "" {
+			home, _ := os.UserHomeDir()
+			exportDir = filepath.Join(home, ".lnr", "exports")
+		}
 		_ = os.MkdirAll(exportDir, 0755)
 
 		dl, err := downloader.NewDownloader(src, store)

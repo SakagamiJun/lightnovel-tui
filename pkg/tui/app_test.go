@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -297,7 +298,7 @@ func TestProgressUpdateAndExportTask(t *testing.T) {
 	}
 
 	// Test export task with pre-cached book
-	cmd := startExportTask(nil, store, bookID, 0)
+	cmd := startExportTask(nil, store, bookID, 0, "")
 	if cmd == nil {
 		t.Fatalf("expected non-nil cmd from startExportTask")
 	}
@@ -331,5 +332,90 @@ func TestProgressUpdateAndExportTask(t *testing.T) {
 
 	if !strings.Contains(app.statusText, "[完成]") {
 		t.Errorf("expected statusText to indicate [完成], got: %s", app.statusText)
+	}
+}
+
+func TestSettingsEditPathAndClearConfirmation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "settings-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	app := NewAppModel(store, nil)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app.Update(common.SwitchViewMsg{Target: common.ViewSettings})
+
+	// 1. Cursor is at 0 (Cache Dir). Press Enter to edit
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	viewStr := app.View()
+	if !strings.Contains(viewStr, "编辑路径") || !strings.Contains(viewStr, "新路径:") {
+		t.Errorf("expected view to indicate editing mode, got: %s", viewStr)
+	}
+
+	// Clear existing value and type new cache path
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	newCacheDir := filepath.Join(tmpDir, "new_cache_dir")
+	for _, ch := range newCacheDir {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	// Press Enter to save
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if store.BaseDir() != newCacheDir {
+		t.Errorf("expected store baseDir to be %s, got %s", newCacheDir, store.BaseDir())
+	}
+	if app.settingsView.CacheDir() != newCacheDir {
+		t.Errorf("expected settingsView cacheDir to be %s, got %s", newCacheDir, app.settingsView.CacheDir())
+	}
+
+	// 2. Cursor down to 1 (Export Dir). Press Enter to edit
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	newExportDir := filepath.Join(tmpDir, "new_export_dir")
+	for _, ch := range newExportDir {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if app.settingsView.ExportDir() != newExportDir {
+		t.Errorf("expected settingsView exportDir to be %s, got %s", newExportDir, app.settingsView.ExportDir())
+	}
+
+	// 3. Move down to 5 (Clear All Cache)
+	for i := 0; i < 4; i++ {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	}
+	if app.settingsView.Cursor() != 5 {
+		t.Fatalf("expected cursor at 5, got %d", app.settingsView.Cursor())
+	}
+
+	// Press Enter to trigger clear confirmation
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	confirmView := app.View()
+	if !strings.Contains(confirmView, "确认清空") {
+		t.Errorf("expected confirm view to contain '确认清空'")
+	}
+	if !strings.Contains(confirmView, "[y]") || !strings.Contains(confirmView, "[n/Esc]") {
+		t.Errorf("expected explicit [y] and [n/Esc] instructions in clear confirmation")
+	}
+
+	// Press 'n' to cancel
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	afterCancel := app.View()
+	if strings.Contains(afterCancel, "[清空确认]") {
+		t.Errorf("expected confirmation banner to be dismissed after 'n'")
+	}
+
+	// Press Enter again and press 'y' to confirm
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	afterClear := app.View()
+	if strings.Contains(afterClear, "[清空确认]") {
+		t.Errorf("expected confirmation banner to be dismissed after 'y'")
 	}
 }

@@ -1,11 +1,13 @@
 package views
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -13,6 +15,14 @@ import (
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
+
+// AppConfig represents persisted user preferences.
+type AppConfig struct {
+	CacheDir     string `json:"cache_dir,omitempty"`
+	ExportDir    string `json:"export_dir,omitempty"`
+	ScrollStep   int    `json:"scroll_step,omitempty"`
+	AutoBookmark bool   `json:"auto_bookmark"`
+}
 
 // SettingsView provides an interactive configuration panel.
 type SettingsView struct {
@@ -26,19 +36,93 @@ type SettingsView struct {
 	autoBookmark bool
 	confirmClear bool
 	exportDir    string
+	cacheDir     string
+	editingPath  bool
+	editingItem  int // 0 for cacheDir, 1 for exportDir
+	pathInput    textinput.Model
+}
+
+func (v *SettingsView) configFilePath() string {
+	if v.store != nil {
+		return filepath.Join(v.store.BaseDir(), "config.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "./config.json"
+	}
+	return filepath.Join(home, ".lnr", "config.json")
 }
 
 // NewSettingsView constructs a new SettingsView instance.
 func NewSettingsView(store *storage.Storage) *SettingsView {
 	home, _ := os.UserHomeDir()
-	exportDir := filepath.Join(home, ".lnr", "exports")
-	return &SettingsView{
+	defaultExportDir := filepath.Join(home, ".lnr", "exports")
+	defaultCacheDir := ""
+	if store != nil {
+		defaultCacheDir = store.BaseDir()
+	} else {
+		defaultCacheDir = filepath.Join(home, ".lnr", "cache")
+	}
+
+	ti := textinput.New()
+	ti.CharLimit = 200
+	ti.Width = 60
+	ti.Prompt = " "
+	ti.TextStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite)
+
+	v := &SettingsView{
 		store:        store,
 		cursor:       0,
 		scrollStep:   3,
 		autoBookmark: true,
-		exportDir:    exportDir,
+		exportDir:    defaultExportDir,
+		cacheDir:     defaultCacheDir,
+		pathInput:    ti,
 	}
+
+	// Load existing persisted configuration if present
+	v.loadConfig()
+
+	return v
+}
+
+func (v *SettingsView) loadConfig() {
+	data, err := os.ReadFile(v.configFilePath())
+	if err != nil {
+		return
+	}
+	var cfg AppConfig
+	if err := json.Unmarshal(data, &cfg); err == nil {
+		if cfg.CacheDir != "" {
+			v.cacheDir = cfg.CacheDir
+			if v.store != nil {
+				_ = v.store.SetBaseDir(cfg.CacheDir)
+			}
+		}
+		if cfg.ExportDir != "" {
+			v.exportDir = cfg.ExportDir
+		}
+		if cfg.ScrollStep > 0 {
+			v.scrollStep = cfg.ScrollStep
+		}
+		v.autoBookmark = cfg.AutoBookmark
+	}
+}
+
+func (v *SettingsView) saveConfig() {
+	cfg := AppConfig{
+		CacheDir:     v.cacheDir,
+		ExportDir:    v.exportDir,
+		ScrollStep:   v.scrollStep,
+		AutoBookmark: v.autoBookmark,
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return
+	}
+	cfgPath := v.configFilePath()
+	_ = os.MkdirAll(filepath.Dir(cfgPath), 0755)
+	_ = os.WriteFile(cfgPath, data, 0644)
 }
 
 // RecalculateCacheSizeCmd returns a BubbleTea Cmd to asynchronously compute cache size.
@@ -76,6 +160,31 @@ func (v *SettingsView) ScrollStep() int {
 	return v.scrollStep
 }
 
+// ExportDir returns the configured EPUB export directory.
+func (v *SettingsView) ExportDir() string {
+	return v.exportDir
+}
+
+// CacheDir returns the configured local cache directory.
+func (v *SettingsView) CacheDir() string {
+	return v.cacheDir
+}
+
+// IsEditing returns true if currently in path input editing mode.
+func (v *SettingsView) IsEditing() bool {
+	return v.editingPath
+}
+
+// IsConfirmingClear returns true if currently in clear cache confirmation mode.
+func (v *SettingsView) IsConfirmingClear() bool {
+	return v.confirmClear
+}
+
+// PathInputValue returns current value in the path input box.
+func (v *SettingsView) PathInputValue() string {
+	return v.pathInput.Value()
+}
+
 func formatBytes(bytes int64) string {
 	const (
 		kb = 1024
@@ -94,6 +203,16 @@ func formatBytes(bytes int64) string {
 	}
 }
 
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path, "~"))
+		}
+	}
+	return path
+}
+
 func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cacheSizeMsg:
@@ -102,6 +221,57 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
+		// 1. If actively editing path for Item 0 (CacheDir) or Item 1 (ExportDir)
+		if v.editingPath {
+			switch msg.String() {
+			case "enter":
+				rawPath := strings.TrimSpace(v.pathInput.Value())
+				newPath := expandHome(rawPath)
+				if newPath != "" {
+					if v.editingItem == 0 {
+						if v.store != nil {
+							if err := v.store.SetBaseDir(newPath); err != nil {
+								return v, func() tea.Msg { return common.ErrorMsg(err) }
+							}
+						}
+						v.cacheDir = newPath
+						v.saveConfig()
+						v.editingPath = false
+						v.pathInput.Blur()
+						return v, tea.Batch(
+							v.RecalculateCacheSizeCmd(),
+							func() tea.Msg { return common.StatusMsg("[成功] 缓存目录已修改为: " + newPath) },
+						)
+					} else if v.editingItem == 1 {
+						_ = os.MkdirAll(newPath, 0755)
+						v.exportDir = newPath
+						v.saveConfig()
+						v.editingPath = false
+						v.pathInput.Blur()
+						return v, func() tea.Msg { return common.StatusMsg("[成功] EPUB导出目录已修改为: " + newPath) }
+					}
+				}
+				v.editingPath = false
+				v.pathInput.Blur()
+				return v, nil
+
+			case "ctrl+u":
+				v.pathInput.Reset()
+				return v, nil
+
+			case "esc":
+				v.editingPath = false
+				v.pathInput.Blur()
+				return v, func() tea.Msg { return common.StatusMsg("[提示] 已取消修改路径") }
+
+			default:
+				var cmd tea.Cmd
+				v.pathInput, cmd = v.pathInput.Update(msg)
+				return v, cmd
+			}
+		}
+
+		// 2. If confirming clear cache
 		if v.confirmClear {
 			switch msg.String() {
 			case "y", "Y":
@@ -112,15 +282,16 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				v.cacheSize = 0
 				return v, tea.Batch(
 					v.RecalculateCacheSizeCmd(),
-					func() tea.Msg { return common.StatusMsg("已成功清空本地缓存") },
+					func() tea.Msg { return common.StatusMsg("[完成] 已成功清空全部本地小说缓存") },
 				)
 			case "n", "N", "esc":
 				v.confirmClear = false
-				return v, func() tea.Msg { return common.StatusMsg("已取消清空操作") }
+				return v, func() tea.Msg { return common.StatusMsg("[提示] 已取消清空操作") }
 			}
 			return v, nil
 		}
 
+		// 3. Normal navigation & toggle
 		switch msg.String() {
 		case "up", "k":
 			if v.cursor > 0 {
@@ -132,6 +303,20 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 			}
 		case "enter", " ":
 			switch v.cursor {
+			case 0: // Edit Cache Dir
+				v.editingPath = true
+				v.editingItem = 0
+				v.pathInput.SetValue(v.cacheDir)
+				v.pathInput.Focus()
+				return v, textinput.Blink
+
+			case 1: // Edit Export Dir
+				v.editingPath = true
+				v.editingItem = 1
+				v.pathInput.SetValue(v.exportDir)
+				v.pathInput.Focus()
+				return v, textinput.Blink
+
 			case 2: // Scroll step
 				switch v.scrollStep {
 				case 1:
@@ -143,11 +328,14 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				default:
 					v.scrollStep = 1
 				}
+				v.saveConfig()
 				return v, func() tea.Msg {
 					return common.StatusMsg(fmt.Sprintf("滚轮步长已设置为 %d 行", v.scrollStep))
 				}
+
 			case 3: // Auto bookmark
 				v.autoBookmark = !v.autoBookmark
+				v.saveConfig()
 				state := "开启"
 				if !v.autoBookmark {
 					state = "关闭"
@@ -155,11 +343,15 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				return v, func() tea.Msg {
 					return common.StatusMsg(fmt.Sprintf("阅读自动记录书签已%s", state))
 				}
+
 			case 4: // Refresh cache size
 				return v, v.RecalculateCacheSizeCmd()
+
 			case 5: // Clear cache
 				v.confirmClear = true
-				return v, nil
+				return v, func() tea.Msg {
+					return common.StatusMsg("[清空确认] 再次确认：请按键盘 [y] 确认执行清空，按 [n/Esc] 取消")
+				}
 			}
 		case "r":
 			return v, v.RecalculateCacheSizeCmd()
@@ -176,20 +368,24 @@ func (v *SettingsView) View() string {
 
 	var sb strings.Builder
 
-	// Header line (1 line)
-	titleText := " 系统配置与偏好设置  •  [↑/↓] 导航  •  [Enter/空格] 切换/执行  •  [r] 重新统计空间"
-	header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render(runewidth.Truncate(titleText, maxWidth, "..."))
-	sb.WriteString(header + "\n")
+	// Header line (strictly 1 line)
+	var titleText string
+	var headerStyle lipgloss.Style
+	if v.confirmClear {
+		titleText = " [清空确认] 将删除所有已下载章节与图片！请按键盘 [y] 确认清空 / 按 [n/Esc] 取消"
+		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose)
+	} else if v.editingPath {
+		titleText = " [编辑路径] 请输入新路径，按 [Enter] 确认保存，按 [Esc] 取消修改"
+		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky)
+	} else {
+		titleText = " 系统配置与偏好设置  •  [Enter] 修改/切换/执行  •  [r] 重新统计空间"
+		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor)
+	}
+	sb.WriteString(headerStyle.Render(runewidth.Truncate(titleText, maxWidth, "...")) + "\n")
 
 	// Divider line (1 line)
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
 		Render(strings.Repeat("─", maxWidth)) + "\n")
-
-	cacheDir := "未配置"
-	if v.store != nil {
-		cacheDir = v.store.BaseDir()
-	}
 
 	sizeStr := "正在统计..."
 	if v.sizeLoaded {
@@ -213,15 +409,15 @@ func (v *SettingsView) View() string {
 	items := []settingItem{
 		{
 			label: "本地缓存目录",
-			value: cacheDir,
-			badge: theme.BadgeInfo.Render("路径"),
-			desc:  "所有已下载的书籍详情、目录、章节文本及插图存储路径",
+			value: v.cacheDir,
+			badge: theme.BadgeInfo.Render("按Enter修改"),
+			desc:  "按 [Enter] 编辑修改缓存存储路径，按 [Esc] 取消",
 		},
 		{
 			label: "EPUB 导出目录",
 			value: v.exportDir,
-			badge: theme.BadgeInfo.Render("路径"),
-			desc:  "导出的 EPUB 电子书文件默认保存位置",
+			badge: theme.BadgeInfo.Render("按Enter修改"),
+			desc:  "按 [Enter] 编辑修改 EPUB 导出文件保存路径，按 [Esc] 取消",
 		},
 		{
 			label: "沉浸阅读步长",
@@ -244,8 +440,8 @@ func (v *SettingsView) View() string {
 		{
 			label: "清空全部缓存",
 			value: "清理本地全部小说缓存",
-			badge: theme.BadgeWarning.Render("管理"),
-			desc:  "按 [Enter] 清理已下载书籍正文及图片缓存文件 (保留基础配置)",
+			badge: theme.BadgeWarning.Render("按Enter清空"),
+			desc:  "按 [Enter] 触发确认，随后需按键盘 [y] 确认执行清空 / 按 [n/Esc] 取消",
 		},
 	}
 
@@ -255,29 +451,42 @@ func (v *SettingsView) View() string {
 		barInactive     = "│   "
 	)
 
-	// Render items (each 2 lines: line1 = label+badge+value, line2 = desc)
+	// Render items (each item strictly 2 lines)
 	for i, item := range items {
 		isSelected := i == v.cursor
 
 		if isSelected {
 			var line1Text string
-			if i == 5 && v.confirmClear {
+			var line2Text string
+
+			if (i == 0 || i == 1) && v.editingPath && v.editingItem == i {
+				// Inline text input editing mode
+				line1Text = fmt.Sprintf("%s%s  %s  %s",
+					barActive,
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).Render(item.label),
+					theme.BadgeWarning.Render("编辑中"),
+					lipgloss.NewStyle().Foreground(theme.PrimaryLight).Render("[Enter] 保存 / [Esc] 取消"))
+				line2Text = fmt.Sprintf("%s新路径: %s", barActiveIndent, v.pathInput.View())
+			} else if i == 5 && v.confirmClear {
+				// Clear confirmation mode
 				line1Text = fmt.Sprintf("%s%s  %s  %s",
 					barActive,
 					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).Render(item.label),
 					theme.BadgeWarning.Render("待确认"),
-					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).Render("确认清空全部本地小说？[y] 确认 / [n/Esc] 取消"))
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).Render("确认清空？按 [y] 确认 / 按 [n/Esc] 取消"))
+				line2Text = fmt.Sprintf("%s[警告] 该操作不可逆！将删除所有本地缓存小说。按 [y] 确认执行 / 按 [n/Esc] 放弃", barActiveIndent)
 			} else {
+				// Normal selected item
 				line1Text = fmt.Sprintf("%s%s  %s  %s",
 					barActive,
 					lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(item.label),
 					item.badge,
 					lipgloss.NewStyle().Foreground(theme.PrimaryLight).Render(item.value))
+				line2Text = fmt.Sprintf("%s%s", barActiveIndent, item.desc)
 			}
+
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).
 				Render(runewidth.Truncate(line1Text, maxWidth, "..."))
-
-			line2Text := fmt.Sprintf("%s%s", barActiveIndent, item.desc)
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Background(theme.HighlightBg).Width(maxWidth).
 				Render(runewidth.Truncate(line2Text, maxWidth, "..."))
 

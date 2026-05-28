@@ -38,12 +38,14 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		statusText:  "[Tab] 切换导航栏  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [q] 退出",
 	}
 
+	m.settingsView = views.NewSettingsView(store)
+
 	m.bookshelfView = views.NewBookshelfView(store, func(bookID string) tea.Cmd {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
 	m.bookshelfView.SetOnExport(func(bookID string) tea.Cmd {
-		return startExportTask(src, store, bookID, 0)
+		return startExportTask(src, store, bookID, 0, m.settingsView.ExportDir())
 	})
 
 	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
@@ -56,10 +58,8 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		})
 	})
 	m.searchView.SetOnExport(func(bookID string) tea.Cmd {
-		return startExportTask(src, store, bookID, 0)
+		return startExportTask(src, store, bookID, 0, m.settingsView.ExportDir())
 	})
-
-	m.settingsView = views.NewSettingsView(store)
 
 	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {
 		m.currentView = common.ViewReader
@@ -71,7 +71,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		})
 	})
 	m.catalogView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
-		return startExportTask(src, store, bookID, volumeIndex)
+		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
 
 	m.readerView = views.NewReaderView(store, src)
@@ -130,10 +130,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSettings) && msg.String() == "q" {
+		if m.currentView == common.ViewBookshelf && msg.String() == "q" {
 			return m, tea.Quit
 		}
-		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || m.currentView == common.ViewSettings) {
+		if m.currentView == common.ViewSettings && !m.settingsView.IsEditing() && !m.settingsView.IsConfirmingClear() && msg.String() == "q" {
+			return m, tea.Quit
+		}
+		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || (m.currentView == common.ViewSettings && !m.settingsView.IsEditing())) {
 			switch m.currentView {
 			case common.ViewBookshelf:
 				m.currentView = common.ViewSearch
@@ -145,7 +148,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "shift+tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || m.currentView == common.ViewSettings) {
+		if msg.String() == "shift+tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || (m.currentView == common.ViewSettings && !m.settingsView.IsEditing())) {
 			switch m.currentView {
 			case common.ViewBookshelf:
 				m.currentView = common.ViewSettings
