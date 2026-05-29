@@ -138,6 +138,52 @@ func (e *Exporter) ExportFullBook(ctx context.Context, bookID string, outputPath
 	return outputPath, nil
 }
 
+// ExportAllVolumes exports each volume in the catalog as an individual standalone EPUB file.
+// If outputDir is specified, EPUB files are saved inside it. Otherwise they are saved in the current directory.
+// onProgress is invoked after each volume is successfully written.
+func (e *Exporter) ExportAllVolumes(ctx context.Context, bookID string, outputDir string, onProgress func(current, total int, volTitle, outFile string)) ([]string, error) {
+	detail, err := e.store.LoadBookDetail(bookID)
+	if err != nil {
+		return nil, fmt.Errorf("book detail not cached for ID %s: %w", bookID, err)
+	}
+
+	catalog, err := e.store.LoadCatalog(bookID)
+	if err != nil {
+		return nil, fmt.Errorf("catalog not cached for ID %s: %w", bookID, err)
+	}
+
+	if outputDir != "" {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+		}
+	}
+
+	total := len(catalog.Volumes)
+	var outputFiles []string
+	cleanTitle := sanitizeFileName(detail.Title)
+
+	for i, vol := range catalog.Volumes {
+		cleanVol := sanitizeFileName(vol.Title)
+		fileName := fmt.Sprintf("%s - %s.epub", cleanTitle, cleanVol)
+		targetFile := fileName
+		if outputDir != "" {
+			targetFile = filepath.Join(outputDir, fileName)
+		}
+
+		resPath, err := e.ExportVolume(ctx, bookID, i+1, targetFile)
+		if err != nil {
+			return outputFiles, fmt.Errorf("failed to export volume %s: %w", vol.Title, err)
+		}
+		outputFiles = append(outputFiles, resPath)
+
+		if onProgress != nil {
+			onProgress(i+1, total, vol.Title, resPath)
+		}
+	}
+
+	return outputFiles, nil
+}
+
 func (e *Exporter) resolveCover(ctx context.Context, bookID, coverURL string) string {
 	ext := filepath.Ext(coverURL)
 	if ext == "" {

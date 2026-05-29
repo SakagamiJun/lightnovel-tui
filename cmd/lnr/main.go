@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -221,11 +222,24 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bookID := args[0]
 			targetVol, _ := cmd.Flags().GetInt("volume")
+			split, _ := cmd.Flags().GetBool("split")
 			outputPath, _ := cmd.Flags().GetString("output")
 			ctx := context.Background()
 
 			dl, _ := downloader.NewDownloader(src, store)
 			exporter := epub.NewExporter(store, dl)
+
+			if split {
+				fmt.Printf("[导出] 正在将书籍 %s 的所有分卷分别导出为独立 EPUB 文件...\n", bookID)
+				outFiles, err := exporter.ExportAllVolumes(ctx, bookID, outputPath, func(current, total int, volTitle, outFile string) {
+					fmt.Printf("  [%d/%d] (%.1f%%) 已导出分卷: %s -> %s\n", current, total, float64(current)/float64(total)*100, volTitle, filepath.Base(outFile))
+				})
+				if err != nil {
+					return fmt.Errorf("按分卷分别导出 EPUB 失败: %w", err)
+				}
+				fmt.Printf("[完成] 成功导出全部 %d 卷独立 EPUB 文件！\n", len(outFiles))
+				return nil
+			}
 
 			if targetVol > 0 {
 				fmt.Printf("[导出] 正在导出书籍 %s 的第 %d 卷为 EPUB...\n", bookID, targetVol)
@@ -246,7 +260,8 @@ func main() {
 		},
 	}
 	exportCmd.Flags().IntP("volume", "v", 0, "指定导出分卷 (默认0表示整本导出)")
-	exportCmd.Flags().StringP("output", "o", "", "指定导出 EPUB 文件路径")
+	exportCmd.Flags().BoolP("split", "s", false, "将所有分卷分别导出为独立的 EPUB 文件 (每卷一个 EPUB)")
+	exportCmd.Flags().StringP("output", "o", "", "指定导出 EPUB 文件路径或保存目录")
 
 	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd)
 

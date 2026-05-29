@@ -3,12 +3,14 @@ package epub
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"lnr-core/pkg/model"
+	"lnr-core/pkg/storage"
 )
 
 func TestEPUBBuilder(t *testing.T) {
@@ -102,4 +104,108 @@ func TestEPUBBuilder(t *testing.T) {
 	}
 
 	t.Logf("EPUB generated successfully with %d files in archive", len(zr.File))
+}
+
+func TestExporterAllVolumes(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "exporter-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	bookID := "999"
+	detail := &model.BookDetail{
+		ID:          bookID,
+		Title:       "刀剑神域",
+		Author:      "川原砾",
+		Publisher:   "电击文库",
+		Description: "SAO测试轻小说",
+	}
+	if err := store.SaveBookDetail(detail); err != nil {
+		t.Fatalf("SaveBookDetail failed: %v", err)
+	}
+
+	catalog := &model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{
+			{
+				ID:    "v1",
+				Title: "第一卷 艾恩葛朗特",
+				Chapters: []model.Chapter{
+					{ID: "c101", Title: "第一章 序幕"},
+				},
+			},
+			{
+				ID:    "v2",
+				Title: "第二卷 妖精之舞",
+				Chapters: []model.Chapter{
+					{ID: "c201", Title: "第二章 降临"},
+				},
+			},
+		},
+	}
+	if err := store.SaveCatalog(catalog); err != nil {
+		t.Fatalf("SaveCatalog failed: %v", err)
+	}
+
+	ch1 := &model.ChapterContent{
+		BookID: bookID,
+		ID:     "c101",
+		Title:  "第一章 序幕",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "这是第一卷正文。"},
+		},
+	}
+	if err := store.SaveChapter(ch1); err != nil {
+		t.Fatalf("SaveChapter c101 failed: %v", err)
+	}
+
+	ch2 := &model.ChapterContent{
+		BookID: bookID,
+		ID:     "c201",
+		Title:  "第二章 降临",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "这是第二卷正文。"},
+		},
+	}
+	if err := store.SaveChapter(ch2); err != nil {
+		t.Fatalf("SaveChapter c201 failed: %v", err)
+	}
+
+	exporter := NewExporter(store, nil)
+	outDir := filepath.Join(tmpDir, "epub_out")
+
+	var progressEvents []int
+	outFiles, err := exporter.ExportAllVolumes(context.Background(), bookID, outDir, func(current, total int, volTitle, outFile string) {
+		progressEvents = append(progressEvents, current)
+		if total != 2 {
+			t.Errorf("expected total 2, got %d", total)
+		}
+	})
+	if err != nil {
+		t.Fatalf("ExportAllVolumes failed: %v", err)
+	}
+
+	if len(outFiles) != 2 {
+		t.Fatalf("expected 2 output files, got %d", len(outFiles))
+	}
+	if len(progressEvents) != 2 {
+		t.Errorf("expected 2 progress callbacks, got %d", len(progressEvents))
+	}
+
+	for i, fPath := range outFiles {
+		fi, err := os.Stat(fPath)
+		if err != nil {
+			t.Errorf("output file %d does not exist: %v", i+1, err)
+			continue
+		}
+		if fi.Size() == 0 {
+			t.Errorf("output file %d is empty", i+1)
+		}
+	}
 }
