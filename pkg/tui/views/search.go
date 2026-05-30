@@ -34,7 +34,7 @@ type SearchView struct {
 	height     int
 	onSelect   func(bookID string) tea.Cmd
 	onDownload func(bookID string) tea.Cmd
-	onExport   func(bookID string) tea.Cmd
+	onExport   func(bookID string, volumeIndex int) tea.Cmd
 }
 
 // NewSearchView creates an interactive search view.
@@ -63,7 +63,7 @@ func (v *SearchView) SetOnDownload(fn func(bookID string) tea.Cmd) {
 }
 
 // SetOnExport registers export callback.
-func (v *SearchView) SetOnExport(fn func(bookID string) tea.Cmd) {
+func (v *SearchView) SetOnExport(fn func(bookID string, volumeIndex int) tea.Cmd) {
 	v.onExport = fn
 }
 
@@ -239,7 +239,13 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 		case "e":
 			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
 				if v.onExport != nil {
-					return v, v.onExport(v.results[v.cursor].ID)
+					return v, v.onExport(v.results[v.cursor].ID, common.ExportModeFullBook)
+				}
+			}
+		case "s":
+			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+				if v.onExport != nil {
+					return v, v.onExport(v.results[v.cursor].ID, common.ExportModeAllVolumesSeparate)
 				}
 			}
 		case "esc", "/":
@@ -294,7 +300,7 @@ func (v *SearchView) View() string {
 	}
 
 	curPos := v.cursor + 1
-	focusHint := "[d] 下载全本  •  [e] 导出EPUB  •  [/] 输入框"
+	focusHint := "[d] 下载全本  •  [e] 导出全本  •  [s] 分卷全导出  •  [/] 输入框"
 	if v.input.Focused() {
 		focusHint = "[Enter] 检索  •  [↓] 结果列表"
 	}

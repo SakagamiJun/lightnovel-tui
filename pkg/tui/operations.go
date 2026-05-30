@@ -14,6 +14,7 @@ import (
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/tui/common"
 )
 
 type progressUpdateMsg struct {
@@ -241,6 +242,20 @@ func startExportTask(src source.DataSource, store *storage.Storage, bookID strin
 				return
 			}
 			ch <- fmt.Sprintf("[完成] 成功导出分卷 EPUB: %s", resPath)
+		} else if volumeIndex == common.ExportModeAllVolumesSeparate {
+			ch <- fmt.Sprintf("[导出中] 准备按分卷导出全部 %d 卷独立 EPUB...", len(catalog.Volumes))
+			outFiles, err := exporter.ExportAllVolumes(ctx, bookID, exportDir, func(current, total int, volTitle, outFile string) {
+				msg := fmt.Sprintf("[导出中] 《%s》[%d/%d 卷] 成功打包: %s", detail.Title, current, total, filepath.Base(outFile))
+				select {
+				case ch <- msg:
+				default:
+				}
+			})
+			if err != nil {
+				ch <- fmt.Sprintf("[错误] 按分卷分别导出失败: %v", err)
+				return
+			}
+			ch <- fmt.Sprintf("[完成] 成功导出全部分卷 EPUB (共 %d 卷) 到目录: %s", len(outFiles), exportDir)
 		} else {
 			outFile := filepath.Join(exportDir, fmt.Sprintf("%s.epub", cleanTitle))
 			ch <- fmt.Sprintf("[导出中] 正在打包全本 EPUB: %s...", filepath.Base(outFile))

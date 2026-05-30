@@ -333,6 +333,43 @@ func TestProgressUpdateAndExportTask(t *testing.T) {
 	if !strings.Contains(app.statusText, "[完成]") {
 		t.Errorf("expected statusText to indicate [完成], got: %s", app.statusText)
 	}
+
+	// Test separate volume export task
+	customExportDir := filepath.Join(tmpDir, "custom_exports")
+	cmdSplit := startExportTask(nil, store, bookID, common.ExportModeAllVolumesSeparate, customExportDir)
+	if cmdSplit == nil {
+		t.Fatalf("expected non-nil cmd from startExportTask with split mode")
+	}
+
+	timeoutSplit := time.After(5 * time.Second)
+	completedSplit := false
+	for {
+		select {
+		case <-timeoutSplit:
+			t.Fatalf("timed out waiting for split export task to finish")
+		default:
+			msg := cmdSplit()
+			if msg == nil {
+				completedSplit = true
+				break
+			}
+			if pMsg, ok := msg.(progressUpdateMsg); ok {
+				app.Update(pMsg)
+				if strings.Contains(pMsg.text, "[完成]") {
+					completedSplit = true
+					break
+				}
+				cmdSplit = listenProgress(pMsg.sub)
+			}
+		}
+		if completedSplit {
+			break
+		}
+	}
+
+	if !strings.Contains(app.statusText, "[完成]") || !strings.Contains(app.statusText, "全部分卷") {
+		t.Errorf("expected statusText to indicate split volume completion, got: %s", app.statusText)
+	}
 }
 
 func TestSettingsEditPathAndClearConfirmation(t *testing.T) {

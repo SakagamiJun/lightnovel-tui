@@ -44,8 +44,8 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
-	m.bookshelfView.SetOnExport(func(bookID string) tea.Cmd {
-		return startExportTask(src, store, bookID, 0, m.settingsView.ExportDir())
+	m.bookshelfView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
+		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
 
 	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
@@ -57,8 +57,8 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 			m.bookshelfView.Reload()
 		})
 	})
-	m.searchView.SetOnExport(func(bookID string) tea.Cmd {
-		return startExportTask(src, store, bookID, 0, m.settingsView.ExportDir())
+	m.searchView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
+		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
 
 	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {

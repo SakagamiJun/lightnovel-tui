@@ -25,7 +25,7 @@ type BookshelfView struct {
 	loaded        bool
 	confirmDelete bool
 	onSelect      func(bookID string) tea.Cmd
-	onExport      func(bookID string) tea.Cmd
+	onExport      func(bookID string, volumeIndex int) tea.Cmd
 }
 
 // NewBookshelfView constructs bookshelf model.
@@ -39,7 +39,7 @@ func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.C
 }
 
 // SetOnExport registers export callback.
-func (v *BookshelfView) SetOnExport(fn func(bookID string) tea.Cmd) {
+func (v *BookshelfView) SetOnExport(fn func(bookID string, volumeIndex int) tea.Cmd) {
 	v.onExport = fn
 }
 
@@ -242,7 +242,11 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 			}
 		case "e":
 			if len(v.books) > 0 && v.cursor < len(v.books) && v.onExport != nil {
-				return v, v.onExport(v.books[v.cursor].ID)
+				return v, v.onExport(v.books[v.cursor].ID, common.ExportModeFullBook)
+			}
+		case "s":
+			if len(v.books) > 0 && v.cursor < len(v.books) && v.onExport != nil {
+				return v, v.onExport(v.books[v.cursor].ID, common.ExportModeAllVolumesSeparate)
 			}
 		case "enter":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
@@ -292,7 +296,7 @@ func (v *BookshelfView) View() string {
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).
 			Render(runewidth.Truncate(delPrompt, maxWidth, "..."))
 	} else {
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶  •  [d/x] 删除  •  [e] 导出EPUB  •  [Enter] 目录  •  [r] 刷新", curPos, len(v.books))
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶  •  [d/x] 删除  •  [e] 导出全本  •  [s] 分卷全导出  •  [Enter] 目录", curPos, len(v.books))
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 			Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	}

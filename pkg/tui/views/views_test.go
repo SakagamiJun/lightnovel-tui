@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/tui/common"
 )
 
 func TestCatalogWindowing(t *testing.T) {
@@ -258,21 +259,28 @@ func TestBookshelfPinningAndDeletion(t *testing.T) {
 func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 	// 1. Bookshelf export callback
 	bExportID := ""
+	bExportVol := -999
 	bv := &BookshelfView{
 		books: []model.BookDetail{{BookSummary: model.BookSummary{ID: "book_shelf_1"}}},
 	}
-	bv.SetOnExport(func(bookID string) tea.Cmd {
+	bv.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
 		bExportID = bookID
+		bExportVol = volumeIndex
 		return nil
 	})
 	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
-	if bExportID != "book_shelf_1" {
-		t.Errorf("expected bookshelf export callback with 'book_shelf_1', got %q", bExportID)
+	if bExportID != "book_shelf_1" || bExportVol != common.ExportModeFullBook {
+		t.Errorf("expected bookshelf full export callback, got %q vol=%d", bExportID, bExportVol)
+	}
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if bExportID != "book_shelf_1" || bExportVol != common.ExportModeAllVolumesSeparate {
+		t.Errorf("expected bookshelf split export callback, got %q vol=%d", bExportID, bExportVol)
 	}
 
 	// 2. Search download and export callback
 	sDownloadID := ""
 	sExportID := ""
+	sExportVol := -999
 	sv := &SearchView{
 		results: []model.BookSummary{{ID: "book_search_1"}},
 	}
@@ -281,8 +289,9 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 		sDownloadID = bookID
 		return nil
 	})
-	sv.SetOnExport(func(bookID string) tea.Cmd {
+	sv.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
 		sExportID = bookID
+		sExportVol = volumeIndex
 		return nil
 	})
 	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
@@ -290,14 +299,18 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 		t.Errorf("expected search download callback with 'book_search_1', got %q", sDownloadID)
 	}
 	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
-	if sExportID != "book_search_1" {
-		t.Errorf("expected search export callback with 'book_search_1', got %q", sExportID)
+	if sExportID != "book_search_1" || sExportVol != common.ExportModeFullBook {
+		t.Errorf("expected search full export callback, got %q vol=%d", sExportID, sExportVol)
+	}
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if sExportID != "book_search_1" || sExportVol != common.ExportModeAllVolumesSeparate {
+		t.Errorf("expected search split export callback, got %q vol=%d", sExportID, sExportVol)
 	}
 
 	// 3. Catalog volume download and full export callback
 	cDownloadVol := -1
 	cDownloadBookID := ""
-	cExportVol := -1
+	cExportVol := -999
 	cExportBookID := ""
 	cv := &CatalogView{
 		bookID: "book_cat_1",
@@ -322,9 +335,21 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 		t.Errorf("expected catalog volume download for vol 2, got book=%s vol=%d", cDownloadBookID, cDownloadVol)
 	}
 
+	// Press 'e' on volume
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if cExportBookID != "book_cat_1" || cExportVol != 2 {
+		t.Errorf("expected catalog volume export for vol 2, got book=%s vol=%d", cExportBookID, cExportVol)
+	}
+
+	// Press 's' for split export all volumes
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cExportBookID != "book_cat_1" || cExportVol != common.ExportModeAllVolumesSeparate {
+		t.Errorf("expected catalog split export (vol %d), got book=%s vol=%d", common.ExportModeAllVolumesSeparate, cExportBookID, cExportVol)
+	}
+
 	// Press 'E' for full book export
 	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
-	if cExportBookID != "book_cat_1" || cExportVol != 0 {
+	if cExportBookID != "book_cat_1" || cExportVol != common.ExportModeFullBook {
 		t.Errorf("expected catalog full book export (vol 0), got book=%s vol=%d", cExportBookID, cExportVol)
 	}
 }

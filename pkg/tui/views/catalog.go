@@ -238,7 +238,11 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 			}
 		case "E":
 			if v.onExport != nil {
-				return v, v.onExport(v.bookID, 0)
+				return v, v.onExport(v.bookID, common.ExportModeFullBook)
+			}
+		case "s", "S":
+			if v.onExport != nil {
+				return v, v.onExport(v.bookID, common.ExportModeAllVolumesSeparate)
 			}
 		case "esc":
 			return v, func() tea.Msg {
@@ -296,7 +300,7 @@ func (v *CatalogView) View() string {
 	if v.detail != nil {
 		curPos := v.cursor + 1
 		total := len(v.flatItems)
-		headerText := fmt.Sprintf(" %s  •  [%d/%d 项]  •  [Enter] 阅读  •  [d] 缓存分卷  •  [e] 导出分卷  •  [D] 缓存全本",
+		headerText := fmt.Sprintf(" %s  •  [%d/%d 项]  •  [Enter] 阅读  •  [e] 导出分卷  •  [s] 分卷全导出  •  [E] 导出合订本",
 			v.detail.Title, curPos, total)
 		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
 			Render(runewidth.Truncate(headerText, maxWidth, "..."))
