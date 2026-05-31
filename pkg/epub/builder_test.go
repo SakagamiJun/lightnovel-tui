@@ -120,11 +120,13 @@ func TestExporterAllVolumes(t *testing.T) {
 
 	bookID := "999"
 	detail := &model.BookDetail{
-		ID:          bookID,
-		Title:       "刀剑神域",
-		Author:      "川原砾",
-		Publisher:   "电击文库",
-		Description: "SAO测试轻小说",
+		BookSummary: model.BookSummary{
+			ID:          bookID,
+			Title:       "刀剑神域",
+			Author:      "川原砾",
+			Publisher:   "电击文库",
+			Description: "SAO测试轻小说",
+		},
 	}
 	if err := store.SaveBookDetail(detail); err != nil {
 		t.Fatalf("SaveBookDetail failed: %v", err)
