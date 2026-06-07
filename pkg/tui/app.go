@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 	"lnr-core/pkg/tui/views"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // AppModel is the root Bubble Tea model managing sub-views, headers, and footer.
@@ -191,7 +192,7 @@ func (m *AppModel) View() string {
 	}
 
 	// 1. Top Header Bar with Tabs (strictly 2 lines: tabs + bottom border line)
-	title := theme.AppTitleStyle.Render("LNR 轻小说")
+	title := theme.AppTitleStyle.Render("轻小说文库")
 	var tabBookshelf, tabSearch, tabSettings, tabExtra string
 	if m.currentView == common.ViewBookshelf {
 		tabBookshelf = theme.TabActiveStyle.Render("本地书架 (Tab)")

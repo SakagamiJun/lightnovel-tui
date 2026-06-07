@@ -45,8 +45,8 @@ func TestAppModelViewLineBudget(t *testing.T) {
 		}
 
 		// Verify line 0 contains header
-		if !strings.Contains(lines[0], "LNR") {
-			t.Errorf("expected line 0 to contain LNR header, got: %s", lines[0])
+		if !strings.Contains(lines[0], "LNR") && !strings.Contains(lines[0], "轻小说文库") {
+			t.Errorf("expected line 0 to contain header, got: %s", lines[0])
 		}
 
 		// Verify bottom line contains status bar
@@ -89,8 +89,8 @@ func TestAppModelSearchViewWithManyResults(t *testing.T) {
 	}
 
 	// Line 0: Header tabs
-	if !strings.Contains(lines[0], "LNR") {
-		t.Errorf("expected line 0 to have LNR header, got: %s", lines[0])
+	if !strings.Contains(lines[0], "LNR") && !strings.Contains(lines[0], "轻小说文库") {
+		t.Errorf("expected line 0 to have header, got: %s", lines[0])
 	}
 	// Line 1: Header border
 	// Line 2: Search Title
@@ -149,8 +149,8 @@ func TestAppModelBookshelfViewWithManyResults(t *testing.T) {
 	}
 
 	// Line 0: Header tabs
-	if !strings.Contains(lines[0], "LNR") {
-		t.Errorf("expected line 0 to have LNR header, got: %s", lines[0])
+	if !strings.Contains(lines[0], "LNR") && !strings.Contains(lines[0], "轻小说文库") {
+		t.Errorf("expected line 0 to have header, got: %s", lines[0])
 	}
 	// Line 2: Bookshelf Title
 	if !strings.Contains(lines[2], "本地藏书库") {
