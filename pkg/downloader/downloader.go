@@ -2,8 +2,6 @@ package downloader
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -165,12 +163,5 @@ func (d *Downloader) downloadImage(ctx context.Context, bookID, imgURL string) e
 
 // ImageNameToFileName hashes URL to produce safe local file name.
 func ImageNameToFileName(imgURL string) string {
-	hasher := md5.New()
-	hasher.Write([]byte(imgURL))
-	hash := hex.EncodeToString(hasher.Sum(nil))
-	ext := filepath.Ext(imgURL)
-	if ext == "" || len(ext) > 5 {
-		ext = ".jpg"
-	}
-	return hash + ext
+	return storage.ImageNameToFileName(imgURL)
 }

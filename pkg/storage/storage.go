@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -144,9 +146,37 @@ func (s *Storage) LoadChapter(bookID, chapterID string) (*model.ChapterContent, 
 	return &ch, nil
 }
 
+// ImageNameToFileName hashes an image URL to produce a safe and unique local file name.
+func ImageNameToFileName(imgURL string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(imgURL))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	ext := filepath.Ext(imgURL)
+	if ext == "" || len(ext) > 5 {
+		ext = ".jpg"
+	}
+	return hash + ext
+}
+
 // ImagePath returns the storage path for an image file.
 func (s *Storage) ImagePath(bookID, imgFileName string) string {
 	return filepath.Join(s.BookDir(bookID), "images", imgFileName)
+}
+
+// IllustrationPath returns the local cached path for a given illustration URL.
+func (s *Storage) IllustrationPath(bookID, imgURL string) string {
+	return s.ImagePath(bookID, ImageNameToFileName(imgURL))
+}
+
+// FindCoverPath locates the cached cover image on disk, returning empty string if not found.
+func (s *Storage) FindCoverPath(bookID string) string {
+	for _, ext := range []string{".jpg", ".png", ".jpeg", ".webp"} {
+		path := filepath.Join(s.BookDir(bookID), "images", "cover"+ext)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // EnsureImageDir creates images folder if needed.

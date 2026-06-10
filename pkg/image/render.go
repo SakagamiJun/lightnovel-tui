@@ -2,17 +2,22 @@ package image
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	stdimage "image"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Protocol represents the terminal image display mechanism.
@@ -71,6 +76,46 @@ func OpenInSystemViewer(filePath string) error {
 		cmd = exec.Command("xdg-open", filePath)
 	}
 	return cmd.Start()
+}
+
+// DownloadImageToFile downloads an image from imgURL to destPath streaming with anti-hotlinking referer.
+func DownloadImageToFile(ctx context.Context, imgURL, destPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", imgURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.wenku8.cc/")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	buf := byteBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	buf.Grow(32 * 1024)
+	chunk := buf.Bytes()[:32*1024]
+	defer byteBufferPool.Put(buf)
+
+	_, err = io.CopyBuffer(out, resp.Body, chunk)
+	return err
 }
 
 // LoadImage loads and decodes an image file from disk.

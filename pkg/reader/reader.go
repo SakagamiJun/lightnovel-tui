@@ -23,12 +23,13 @@ type ReadingProgress struct {
 // Reader provides high-level reading navigation across cached chapters,
 // preparing text lines/images for consumption by TUI (Bubble Tea) or GUI (Fyne/Wails).
 type Reader struct {
-	store       *storage.Storage
-	bookID      string
-	catalog     *model.BookCatalog
-	currVolume  *model.Volume
-	currChapter *model.ChapterContent
-	lines       []string
+	store         *storage.Storage
+	bookID        string
+	catalog       *model.BookCatalog
+	currVolume    *model.Volume
+	currChapter   *model.ChapterContent
+	lines         []string
+	illustrations []string
 }
 
 // NewReader initializes a Reader engine for a cached book.
@@ -39,9 +40,10 @@ func NewReader(store *storage.Storage, bookID string) (*Reader, error) {
 	}
 
 	return &Reader{
-		store:   store,
-		bookID:  bookID,
-		catalog: catalog,
+		store:         store,
+		bookID:        bookID,
+		catalog:       catalog,
+		illustrations: make([]string, 0),
 	}, nil
 }
 
@@ -54,6 +56,7 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 
 	r.currChapter = ch
 	r.lines = make([]string, 0)
+	r.illustrations = make([]string, 0)
 
 	// Format paragraphs into clean lines for TUI/GUI viewports
 	for _, el := range ch.Elements {
@@ -65,7 +68,9 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 				}
 			}
 		} else if el.Type == model.ContentTypeImage {
-			r.lines = append(r.lines, fmt.Sprintf("[插图: %s]", el.URL))
+			r.illustrations = append(r.illustrations, el.URL)
+			imgIndex := len(r.illustrations)
+			r.lines = append(r.lines, fmt.Sprintf("[插图: 第 %d 张] (按 [i] 查看插图大图)", imgIndex))
 		}
 	}
 
@@ -75,6 +80,21 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 // Lines returns the formatted readable lines of the current loaded chapter.
 func (r *Reader) Lines() []string {
 	return r.lines
+}
+
+// Illustrations returns all illustration URLs in the current chapter.
+func (r *Reader) Illustrations() []string {
+	return r.illustrations
+}
+
+// IllustrationPath returns the local storage path for an illustration URL.
+func (r *Reader) IllustrationPath(imgURL string) string {
+	return r.store.IllustrationPath(r.bookID, imgURL)
+}
+
+// BookID returns the current book ID.
+func (r *Reader) BookID() string {
+	return r.bookID
 }
 
 // CurrentChapter returns the active chapter content.

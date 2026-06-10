@@ -383,3 +383,34 @@ func TestLongBookTitleDisplayWithoutPrematureTruncation(t *testing.T) {
 		t.Errorf("expected search to contain full title without premature truncation: %s", sOut)
 	}
 }
+
+func TestReaderIllustrationModal(t *testing.T) {
+	rv := &ReaderView{
+		width:  80,
+		height: 24,
+	}
+	rv.SetSize(80, 24)
+
+	// In normal view without reader, 'i' should not open modal
+	rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if rv.showImageModal {
+		t.Errorf("expected modal not to open when reader is nil")
+	}
+
+	// Mock state with modal active
+	rv.showImageModal = true
+	rv.imageIndex = 0
+	rv.imageLoading = false
+	rv.imagePath = "/tmp/test.png"
+
+	modalView := rv.View()
+	if !strings.Contains(modalView, "[插图查看器]") {
+		t.Errorf("expected modal view to contain '[插图查看器]', got: %s", modalView)
+	}
+
+	// Press Esc to exit modal
+	rv.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if rv.showImageModal {
+		t.Errorf("expected modal to close on Esc")
+	}
+}
