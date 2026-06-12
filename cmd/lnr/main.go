@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"lnr-core/pkg/downloader"
 	"lnr-core/pkg/epub"
+	termimage "lnr-core/pkg/image"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/source/wenku8"
@@ -263,7 +264,207 @@ func main() {
 	exportCmd.Flags().BoolP("split", "s", false, "将所有分卷分别导出为独立的 EPUB 文件 (每卷一个 EPUB)")
 	exportCmd.Flags().StringP("output", "o", "", "指定导出 EPUB 文件路径或保存目录")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd)
+	// 5. cover command
+	coverCmd := &cobra.Command{
+		Use:   "cover <书籍ID>",
+		Short: "在终端直接查看轻小说全彩封面",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bookID := args[0]
+			openSys, _ := cmd.Flags().GetBool("open")
+			maxW, _ := cmd.Flags().GetInt("width")
+			maxH, _ := cmd.Flags().GetInt("height")
+			protoStr, _ := cmd.Flags().GetString("protocol")
+			ctx := context.Background()
+
+			// Locate cover path
+			coverPath := store.FindCoverPath(bookID)
+			if coverPath == "" {
+				// Load detail to get cover URL
+				detail, err := store.LoadBookDetail(bookID)
+				if err != nil {
+					detail, err = src.GetBookDetail(ctx, bookID)
+					if err != nil {
+						return fmt.Errorf("获取小说详情失败: %w", err)
+					}
+					_ = store.SaveBookDetail(detail)
+				}
+				if detail.CoverURL == "" {
+					return fmt.Errorf("书籍 %s 未包含封面图片", bookID)
+				}
+
+				_ = store.EnsureImageDir(bookID)
+				ext := filepath.Ext(detail.CoverURL)
+				if ext == "" || len(ext) > 5 {
+					ext = ".jpg"
+				}
+				coverPath = filepath.Join(store.BookDir(bookID), "images", "cover"+ext)
+				fmt.Printf("[下载] 正在拉取封面: %s...\n", detail.CoverURL)
+				if err := termimage.DownloadImageToFile(ctx, detail.CoverURL, coverPath); err != nil {
+					return fmt.Errorf("下载封面失败: %w", err)
+				}
+			}
+
+			if openSys {
+				fmt.Printf("[打开] 正在使用系统查看器打开封面: %s\n", coverPath)
+				return termimage.OpenInSystemViewer(coverPath)
+			}
+
+			proto := termimage.DetectTerminalProtocol()
+			switch strings.ToLower(protoStr) {
+			case "halfblock", "ansi":
+				proto = termimage.ProtocolHalfBlock
+			case "iterm2":
+				proto = termimage.ProtocolITerm2
+			case "kitty":
+				proto = termimage.ProtocolKitty
+			}
+
+			fmt.Printf("\n[封面] 书籍 %s 封面预览 (协议: %s):\n\n", bookID, proto.String())
+			rendered, err := termimage.RenderFile(coverPath, maxW, maxH, proto)
+			if err != nil {
+				return fmt.Errorf("渲染封面失败: %w", err)
+			}
+			fmt.Print(rendered)
+			fmt.Printf("\n本地文件: %s\n", coverPath)
+			return nil
+		},
+	}
+	coverCmd.Flags().BoolP("open", "o", false, "使用系统默认图片查看器打开")
+	coverCmd.Flags().IntP("width", "w", 80, "渲染最大字符列宽")
+	coverCmd.Flags().IntP("height", "H", 35, "渲染最大字符行高")
+	coverCmd.Flags().String("protocol", "auto", "渲染协议 (auto|halfblock|iterm2|kitty)")
+
+	// 6. image command
+	imageCmd := &cobra.Command{
+		Use:   "image <书籍ID>",
+		Short: "在终端查看轻小说内嵌插图",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			bookID := args[0]
+			listOnly, _ := cmd.Flags().GetBool("list")
+			imgIdx, _ := cmd.Flags().GetInt("index")
+			chapterID, _ := cmd.Flags().GetString("chapter")
+			openSys, _ := cmd.Flags().GetBool("open")
+			maxW, _ := cmd.Flags().GetInt("width")
+			maxH, _ := cmd.Flags().GetInt("height")
+			protoStr, _ := cmd.Flags().GetString("protocol")
+			ctx := context.Background()
+
+			// Load catalog
+			catalog, err := store.LoadCatalog(bookID)
+			if err != nil {
+				catalog, err = src.GetCatalog(ctx, bookID)
+				if err != nil {
+					return fmt.Errorf("获取小说目录失败: %w", err)
+				}
+				_ = store.SaveCatalog(catalog)
+			}
+
+			// Collect all illustrations across chapters (or specific chapter)
+			type illustrationInfo struct {
+				ChapterID    string
+				ChapterTitle string
+				URL          string
+				LocalPath    string
+			}
+			var allIllustrations []illustrationInfo
+
+			for _, vol := range catalog.Volumes {
+				for _, ch := range vol.Chapters {
+					if chapterID != "" && ch.ID != chapterID {
+						continue
+					}
+					content, err := store.LoadChapter(bookID, ch.ID)
+					if err != nil {
+						// Try fetch
+						content, err = src.GetChapterContent(ctx, bookID, ch.ID)
+						if err == nil {
+							_ = store.SaveChapter(content)
+						}
+					}
+					if content != nil {
+						for _, el := range content.Elements {
+							if el.Type == model.ContentTypeImage && el.URL != "" {
+								allIllustrations = append(allIllustrations, illustrationInfo{
+									ChapterID:    ch.ID,
+									ChapterTitle: ch.Title,
+									URL:          el.URL,
+									LocalPath:    store.IllustrationPath(bookID, el.URL),
+								})
+							}
+						}
+					}
+				}
+			}
+
+			if len(allIllustrations) == 0 {
+				fmt.Printf("[提示] 书籍 %s 尚未发现插图或插图未缓存。\n", bookID)
+				return nil
+			}
+
+			if listOnly {
+				fmt.Printf("\n[插图列表] 共找到 %d 张插图:\n", len(allIllustrations))
+				fmt.Println(strings.Repeat("-", 80))
+				for i, illu := range allIllustrations {
+					cached := "[未缓存]"
+					if _, err := os.Stat(illu.LocalPath); err == nil {
+						cached = "[已缓存]"
+					}
+					fmt.Printf("[%2d] %-15s | 章节: %-25s | %s\n", i+1, cached, illu.ChapterTitle, illu.URL)
+				}
+				fmt.Println(strings.Repeat("-", 80))
+				fmt.Printf("使用 'lnr image %s -n <序号>' 在终端直接预览插图\n", bookID)
+				return nil
+			}
+
+			if imgIdx < 1 || imgIdx > len(allIllustrations) {
+				imgIdx = 1
+			}
+			targetIllu := allIllustrations[imgIdx-1]
+
+			// Ensure downloaded
+			if _, err := os.Stat(targetIllu.LocalPath); os.IsNotExist(err) {
+				fmt.Printf("[下载] 正在拉取插图 [%d/%d]: %s...\n", imgIdx, len(allIllustrations), targetIllu.URL)
+				if err := termimage.DownloadImageToFile(ctx, targetIllu.URL, targetIllu.LocalPath); err != nil {
+					return fmt.Errorf("下载插图失败: %w", err)
+				}
+			}
+
+			if openSys {
+				fmt.Printf("[打开] 正在使用系统查看器打开插图: %s\n", targetIllu.LocalPath)
+				return termimage.OpenInSystemViewer(targetIllu.LocalPath)
+			}
+
+			proto := termimage.DetectTerminalProtocol()
+			switch strings.ToLower(protoStr) {
+			case "halfblock", "ansi":
+				proto = termimage.ProtocolHalfBlock
+			case "iterm2":
+				proto = termimage.ProtocolITerm2
+			case "kitty":
+				proto = termimage.ProtocolKitty
+			}
+
+			fmt.Printf("\n[插图] 第 %d/%d 张: %s (协议: %s)\n\n", imgIdx, len(allIllustrations), targetIllu.ChapterTitle, proto.String())
+			rendered, err := termimage.RenderFile(targetIllu.LocalPath, maxW, maxH, proto)
+			if err != nil {
+				return fmt.Errorf("渲染插图失败: %w", err)
+			}
+			fmt.Print(rendered)
+			fmt.Printf("\n本地文件: %s\n", targetIllu.LocalPath)
+			return nil
+		},
+	}
+	imageCmd.Flags().BoolP("list", "l", false, "列出所有章节插图清单")
+	imageCmd.Flags().IntP("index", "n", 1, "指定查看的插图序号 (从 1 开始)")
+	imageCmd.Flags().StringP("chapter", "c", "", "指定章节 ID")
+	imageCmd.Flags().BoolP("open", "o", false, "使用系统默认图片查看器打开")
+	imageCmd.Flags().IntP("width", "w", 80, "渲染最大字符列宽")
+	imageCmd.Flags().IntP("height", "H", 35, "渲染最大字符行高")
+	imageCmd.Flags().String("protocol", "auto", "渲染协议 (auto|halfblock|iterm2|kitty)")
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
