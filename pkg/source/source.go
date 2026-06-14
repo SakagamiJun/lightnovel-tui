@@ -14,6 +14,26 @@ const (
 	SearchTypeAuthor SearchType = "author"
 )
 
+// ToplistType defines the type of explore leaderboard.
+type ToplistType string
+
+const (
+	ToplistHot        ToplistType = "allvisit"   // 热门轻小说 (总榜)
+	ToplistAnime      ToplistType = "anime"      // 动画化作品
+	ToplistLastUpdate ToplistType = "lastupdate" // 今日更新
+	ToplistPostDate   ToplistType = "postdate"   // 新书一览
+	ToplistCompleted  ToplistType = "completed"  // 完结全本
+)
+
+// ToplistNameMap maps ToplistType to a human-readable title.
+var ToplistNameMap = map[ToplistType]string{
+	ToplistHot:        "热门轻小说",
+	ToplistAnime:      "动画化作品",
+	ToplistLastUpdate: "今日更新",
+	ToplistPostDate:   "新书一览",
+	ToplistCompleted:  "完结全本",
+}
+
 // DataSource provides an abstract interface to fetch light novel resources.
 type DataSource interface {
 	// Name returns the identifier of the data source (e.g. "wenku8")
@@ -30,4 +50,13 @@ type DataSource interface {
 
 	// GetChapterContent fetches the content and illustrations of a specific chapter.
 	GetChapterContent(ctx context.Context, bookID, chapterID string) (*model.ChapterContent, error)
+
+	// GetToplist fetches leaderboard books.
+	GetToplist(ctx context.Context, tType ToplistType, page int) ([]model.BookSummary, int, error)
+
+	// GetTags returns the supported categorized novel tags.
+	GetTags() []string
+
+	// GetTagBooks searches books tagged with the specified tag.
+	GetTagBooks(ctx context.Context, tag string, page int) ([]model.BookSummary, int, error)
 }
