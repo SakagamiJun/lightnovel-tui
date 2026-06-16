@@ -464,7 +464,123 @@ func main() {
 	imageCmd.Flags().IntP("height", "H", 35, "渲染最大字符行高")
 	imageCmd.Flags().String("protocol", "auto", "渲染协议 (auto|halfblock|iterm2|kitty)")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd)
+	// 7. top command
+	topCmd := &cobra.Command{
+		Use:   "top [hot|anime|update|new|finish]",
+		Short: "浏览轻小说排行榜与热门推荐",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			page, _ := cmd.Flags().GetInt("page")
+			topTypeStr := "hot"
+			if len(args) > 0 {
+				topTypeStr = strings.ToLower(args[0])
+			}
+
+			tType := source.ToplistHot
+			switch topTypeStr {
+			case "anime":
+				tType = source.ToplistAnime
+			case "update", "lastupdate":
+				tType = source.ToplistLastUpdate
+			case "new", "postdate":
+				tType = source.ToplistPostDate
+			case "finish", "completed", "full":
+				tType = source.ToplistCompleted
+			default:
+				tType = source.ToplistHot
+			}
+
+			title := source.ToplistNameMap[tType]
+			fmt.Printf("[榜单] 正在获取「%s」(第 %d 页)...\n", title, page)
+
+			results, totalPages, err := src.GetToplist(context.Background(), tType, page)
+			if err != nil {
+				return fmt.Errorf("获取榜单失败: %w", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Println("未获取到榜单数据。")
+				return nil
+			}
+
+			fmt.Printf("\n「%s」共 %d 本小说 (当前第 %d/%d 页):\n", title, len(results), page, totalPages)
+			fmt.Println(strings.Repeat("-", 80))
+			for i, book := range results {
+				status := "连载中"
+				if book.IsComplete {
+					status = "已完结"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
+			}
+			fmt.Println(strings.Repeat("-", 80))
+			fmt.Println("使用 'lnr info <ID>' 查看详情，使用 'lnr download <ID>' 下载")
+			return nil
+		},
+	}
+	topCmd.Flags().IntP("page", "p", 1, "榜单分页页码")
+
+	// 8. tags command
+	tagsCmd := &cobra.Command{
+		Use:   "tags",
+		Short: "查看文库轻小说分类标签库",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tags := src.GetTags()
+			fmt.Printf("\n[标签库] 文库分类标签 (共 %d 个):\n", len(tags))
+			fmt.Println(strings.Repeat("-", 70))
+			for i, t := range tags {
+				fmt.Printf("%-12s", fmt.Sprintf("[%s]", t))
+				if (i+1)%5 == 0 {
+					fmt.Println()
+				}
+			}
+			if len(tags)%5 != 0 {
+				fmt.Println()
+			}
+			fmt.Println(strings.Repeat("-", 70))
+			fmt.Println("使用 'lnr tag <标签名>' 浏览该标签分类小说")
+			return nil
+		},
+	}
+
+	// 9. tag command
+	tagCmd := &cobra.Command{
+		Use:   "tag <标签名>",
+		Short: "按分类标签浏览轻小说",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tag := args[0]
+			page, _ := cmd.Flags().GetInt("page")
+			fmt.Printf("[标签] 正在浏览标签「%s」(第 %d 页)...\n", tag, page)
+
+			results, totalPages, err := src.GetTagBooks(context.Background(), tag, page)
+			if err != nil {
+				return fmt.Errorf("获取分类小说失败: %w", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Printf("未找到标签「%s」下的小说。\n", tag)
+				return nil
+			}
+
+			fmt.Printf("\n标签「%s」共检索到 %d 本小说 (当前第 %d/%d 页):\n", tag, len(results), page, totalPages)
+			fmt.Println(strings.Repeat("-", 80))
+			for i, book := range results {
+				status := "连载中"
+				if book.IsComplete {
+					status = "已完结"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
+			}
+			fmt.Println(strings.Repeat("-", 80))
+			fmt.Println("使用 'lnr info <ID>' 查看详情，使用 'lnr download <ID>' 下载")
+			return nil
+		},
+	}
+	tagCmd.Flags().IntP("page", "p", 1, "分类分页页码")
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
