@@ -414,3 +414,42 @@ func TestReaderIllustrationModal(t *testing.T) {
 		t.Errorf("expected modal to close on Esc")
 	}
 }
+
+func TestSearchExploreModeToggle(t *testing.T) {
+	sv := NewSearchView(nil, nil)
+	sv.SetSize(80, 24)
+
+	if sv.exploreMode != ModeKeywordSearch {
+		t.Errorf("expected initial mode ModeKeywordSearch, got %v", sv.exploreMode)
+	}
+
+	// Blur input
+	sv.input.Blur()
+
+	// Press 't' to cycle to ModeTopHot
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if sv.exploreMode != ModeTopHot {
+		t.Errorf("expected ModeTopHot after 't', got %v", sv.exploreMode)
+	}
+
+	// Press 't' again to cycle to ModeTopAnime
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if sv.exploreMode != ModeTopAnime {
+		t.Errorf("expected ModeTopAnime after second 't', got %v", sv.exploreMode)
+	}
+
+	// View output should contain mode titles and badges
+	out := sv.View()
+	if !strings.Contains(out, "[热门榜]") || !strings.Contains(out, "[动画化]") {
+		t.Errorf("expected view to contain explore badges, got: %s", out)
+	}
+
+	// Press '/' to refocus and return to keyword search
+	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if sv.exploreMode != ModeKeywordSearch {
+		t.Errorf("expected ModeKeywordSearch after '/', got %v", sv.exploreMode)
+	}
+	if !sv.input.Focused() {
+		t.Errorf("expected input to be focused after '/'")
+	}
+}

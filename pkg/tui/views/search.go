@@ -16,25 +16,51 @@ import (
 	"lnr-core/pkg/tui/theme"
 )
 
+// ExploreMode defines active view mode in SearchView.
+type ExploreMode int
+
+const (
+	ModeKeywordSearch ExploreMode = iota
+	ModeTopHot
+	ModeTopAnime
+	ModeTopUpdate
+	ModeTopPostDate
+	ModeTopCompleted
+)
+
+var exploreModeTitles = map[ExploreMode]string{
+	ModeKeywordSearch: "关键词检索",
+	ModeTopHot:        "热门榜",
+	ModeTopAnime:      "动画化",
+	ModeTopUpdate:     "今日更新",
+	ModeTopPostDate:   "新书榜",
+	ModeTopCompleted:  "完结全本",
+}
+
 type searchResultMsg struct {
-	results []model.BookSummary
-	err     error
+	results    []model.BookSummary
+	totalPages int
+	page       int
+	err        error
 }
 
 // SearchView handles interactive search with textinput.
 type SearchView struct {
-	src        source.DataSource
-	input      textinput.Model
-	results    []model.BookSummary
-	cursor     int
-	offset     int
-	searching  bool
-	err        error
-	width      int
-	height     int
-	onSelect   func(bookID string) tea.Cmd
-	onDownload func(bookID string) tea.Cmd
-	onExport   func(bookID string, volumeIndex int) tea.Cmd
+	src         source.DataSource
+	input       textinput.Model
+	results     []model.BookSummary
+	cursor      int
+	offset      int
+	searching   bool
+	err         error
+	width       int
+	height      int
+	exploreMode ExploreMode
+	page        int
+	totalPages  int
+	onSelect    func(bookID string) tea.Cmd
+	onDownload  func(bookID string) tea.Cmd
+	onExport    func(bookID string, volumeIndex int) tea.Cmd
 }
 
 // NewSearchView creates an interactive search view.
@@ -50,10 +76,13 @@ func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) 
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
 
 	return &SearchView{
-		src:      src,
-		input:    ti,
-		results:  make([]model.BookSummary, 0),
-		onSelect: onSelect,
+		src:         src,
+		input:       ti,
+		results:     make([]model.BookSummary, 0),
+		exploreMode: ModeKeywordSearch,
+		page:        1,
+		totalPages:  1,
+		onSelect:    onSelect,
 	}
 }
 
@@ -83,14 +112,53 @@ func (v *SearchView) SetResults(results []model.BookSummary) {
 	v.err = nil
 	v.cursor = 0
 	v.offset = 0
+	v.page = 1
+	v.totalPages = 1
 	if len(results) > 0 {
 		v.input.Blur()
 	}
 }
 
+func (v *SearchView) fetchExploreCmd(mode ExploreMode, page int) tea.Cmd {
+	if page < 1 {
+		page = 1
+	}
+	v.searching = true
+	v.err = nil
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		var res []model.BookSummary
+		var total int
+		var err error
+
+		switch mode {
+		case ModeTopHot:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistHot, page)
+		case ModeTopAnime:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistAnime, page)
+		case ModeTopUpdate:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistLastUpdate, page)
+		case ModeTopPostDate:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistPostDate, page)
+		case ModeTopCompleted:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistCompleted, page)
+		}
+
+		return searchResultMsg{
+			results:    res,
+			totalPages: total,
+			page:       page,
+			err:        err,
+		}
+	}
+}
+
 func (v *SearchView) visibleCards() int {
 	// Fixed lines:
-	// Header (1) + Input (1) + Spacer (1) + Stats (1) + TopInd (1) + BotInd (1) = 6 lines.
+	// Header (1) + TopBar (1) + Input (1) + Stats (1) + TopInd (1) + BotInd (1) = 6 lines.
 	// Each modern card takes exactly 3 lines.
 	avail := v.height - 6
 	if avail < 3 {
@@ -129,6 +197,8 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 	case searchResultMsg:
 		v.searching = false
 		v.results = msg.results
+		v.totalPages = msg.totalPages
+		v.page = msg.page
 		v.err = msg.err
 		v.cursor = 0
 		v.offset = 0
@@ -168,12 +238,14 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 			if v.input.Focused() && strings.TrimSpace(v.input.Value()) != "" {
 				v.searching = true
 				v.err = nil
+				v.exploreMode = ModeKeywordSearch
+				v.page = 1
 				query := strings.TrimSpace(v.input.Value())
 				return v, func() tea.Msg {
 					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 					defer cancel()
-					res, _, err := v.src.Search(ctx, source.SearchTypeTitle, query, 1)
-					return searchResultMsg{results: res, err: err}
+					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, 1)
+					return searchResultMsg{results: res, totalPages: total, page: 1, err: err}
 				}
 			} else if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
 				selectedID := v.results[v.cursor].ID
@@ -187,6 +259,62 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					}
 				}
 			}
+
+		case "t", "T":
+			if !v.input.Focused() {
+				switch v.exploreMode {
+				case ModeKeywordSearch, ModeTopCompleted:
+					v.exploreMode = ModeTopHot
+				case ModeTopHot:
+					v.exploreMode = ModeTopAnime
+				case ModeTopAnime:
+					v.exploreMode = ModeTopUpdate
+				case ModeTopUpdate:
+					v.exploreMode = ModeTopPostDate
+				case ModeTopPostDate:
+					v.exploreMode = ModeTopCompleted
+				}
+				v.page = 1
+				return v, v.fetchExploreCmd(v.exploreMode, 1)
+			}
+
+		case "[", "p":
+			if !v.input.Focused() && v.page > 1 {
+				v.page--
+				if v.exploreMode == ModeKeywordSearch {
+					query := strings.TrimSpace(v.input.Value())
+					return v, func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+						defer cancel()
+						res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
+						return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
+					}
+				}
+				return v, v.fetchExploreCmd(v.exploreMode, v.page)
+			}
+		case "]", "n":
+			if !v.input.Focused() && v.page < v.totalPages {
+				v.page++
+				if v.exploreMode == ModeKeywordSearch {
+					query := strings.TrimSpace(v.input.Value())
+					return v, func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+						defer cancel()
+						res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
+						return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
+					}
+				}
+				return v, v.fetchExploreCmd(v.exploreMode, v.page)
+			}
+		case "tab":
+			if v.input.Focused() {
+				if len(v.results) > 0 {
+					v.input.Blur()
+				}
+			} else {
+				v.input.Focus()
+			}
+			return v, nil
 
 		case "down", "ctrl+j":
 			if v.input.Focused() && len(v.results) > 0 {
@@ -250,6 +378,7 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 			}
 		case "esc", "/":
 			if !v.input.Focused() {
+				v.exploreMode = ModeKeywordSearch
 				v.input.Focus()
 				return v, nil
 			}
@@ -267,7 +396,7 @@ func (v *SearchView) View() string {
 	var sb strings.Builder
 
 	header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render("在线轻小说检索 (Wenku8)")
+		Render("在线轻小说检索与发现 (Wenku8)")
 	sb.WriteString(header + "\n")
 
 	maxWidth := v.width - 2
@@ -275,15 +404,46 @@ func (v *SearchView) View() string {
 		maxWidth = 30
 	}
 
+	// Explore mode top bar (Line 2)
+	modes := []struct {
+		mode  ExploreMode
+		label string
+	}{
+		{ModeKeywordSearch, "关键词搜索"},
+		{ModeTopHot, "热门榜"},
+		{ModeTopAnime, "动画化"},
+		{ModeTopUpdate, "今日更新"},
+		{ModeTopPostDate, "新书榜"},
+		{ModeTopCompleted, "完结全本"},
+	}
+
+	var badges []string
+	for _, item := range modes {
+		if item.mode == v.exploreMode {
+			badges = append(badges, lipgloss.NewStyle().
+				Bold(true).
+				Foreground(theme.TextWhite).
+				Background(theme.PrimaryColor).
+				Padding(0, 1).
+				Render(fmt.Sprintf("[%s]", item.label)))
+		} else {
+			badges = append(badges, lipgloss.NewStyle().
+				Foreground(theme.TextMuted).
+				Render(fmt.Sprintf("[%s]", item.label)))
+		}
+	}
+	topBar := " 探索模式: " + strings.Join(badges, " ") + lipgloss.NewStyle().Foreground(theme.TextDim).Render("  (按 [t] 轮换)")
+	sb.WriteString(runewidth.Truncate(topBar, maxWidth, "...") + "\n")
+
 	inputBar := lipgloss.NewStyle().
 		Background(theme.BarBg).
 		Width(maxWidth).
 		Render(v.input.View())
-	sb.WriteString(inputBar + "\n\n")
+	sb.WriteString(inputBar + "\n")
 
 	if v.searching {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
-			Render("[检索中] 正在联网检索，请稍候...") + "\n")
+			Render("[检索中] 正在联网获取内容，请稍候...") + "\n")
 		return sb.String()
 	}
 
@@ -295,17 +455,21 @@ func (v *SearchView) View() string {
 
 	if len(v.results) == 0 {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextDim).
-			Render("提示: 请在上方输入关键词并按 [Enter] 开始搜索。") + "\n")
+			Render("提示: 请输入关键词检索，或按 [t] 浏览热门轻小说与分类榜单。") + "\n")
 		return sb.String()
 	}
 
 	curPos := v.cursor + 1
-	focusHint := "[d] 下载全本  •  [e] 导出全本  •  [s] 分卷全导出  •  [/] 输入框"
+	focusHint := "[d] 下载全本  •  [t] 榜单  •  [/] 输入框"
 	if v.input.Focused() {
-		focusHint = "[Enter] 检索  •  [↓] 结果列表"
+		focusHint = "[Enter] 检索  •  [↓] 结果列表  •  [Esc] 快捷键"
 	}
-	statsText := fmt.Sprintf(" 找到 %d 本小说  •  当前 [%d/%d]  •  [Enter] 目录  •  %s",
-		len(v.results), curPos, len(v.results), focusHint)
+	pageStr := ""
+	if v.totalPages > 1 {
+		pageStr = fmt.Sprintf("第 %d/%d 页 ([/])  •  ", v.page, v.totalPages)
+	}
+	statsText := fmt.Sprintf(" %s共 %d 本  •  当前 [%d/%d]  •  [Enter] 目录  •  %s",
+		pageStr, len(v.results), curPos, len(v.results), focusHint)
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
 		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
 
