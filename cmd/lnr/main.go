@@ -580,7 +580,149 @@ func main() {
 	}
 	tagCmd.Flags().IntP("page", "p", 1, "分类分页页码")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd)
+	// 10. update command
+	updateCmd := &cobra.Command{
+		Use:   "update [书籍ID]",
+		Short: "检查本地书架更新或同步增量章节",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checkOnly, _ := cmd.Flags().GetBool("check")
+			updateAll, _ := cmd.Flags().GetBool("all")
+			ctx := context.Background()
+
+			cachedBooks, err := store.ListCachedBooks()
+			if err != nil {
+				return fmt.Errorf("读取本地书架失败: %w", err)
+			}
+
+			if len(cachedBooks) == 0 {
+				fmt.Println("[提示] 本地书架暂无缓存小说。")
+				return nil
+			}
+
+			// If specific book ID given
+			if len(args) > 0 {
+				targetID := args[0]
+				fmt.Printf("[更新] 正在检查书籍 %s 的更新...\n", targetID)
+				info, err := store.CheckBookUpdate(ctx, src, targetID)
+				if err != nil {
+					return fmt.Errorf("检查更新失败: %w", err)
+				}
+				if !info.HasUpdate {
+					fmt.Printf("[最新] 书籍「%s」已是最新版本 (本地 %d 章)。\n", info.Title, info.LocalChapters)
+					return nil
+				}
+				fmt.Printf("[更新发现] 书籍「%s」有 %d 个新章节 (本地 %d 章 -> 远端 %d 章)\n",
+					info.Title, info.NewChapterCount, info.LocalChapters, info.RemoteChapters)
+
+				if checkOnly {
+					return nil
+				}
+
+				// Perform sync: download missing chapters and illustrations
+				fmt.Println("[同步] 开始同步增量章节...")
+				dl, err := downloader.NewDownloader(src, store)
+				if err != nil {
+					return err
+				}
+				_ = store.SaveCatalog(info.RemoteCatalog)
+
+				for _, vol := range info.RemoteCatalog.Volumes {
+					hasMissing := false
+					for _, ch := range vol.Chapters {
+						if _, err := store.LoadChapter(targetID, ch.ID); err != nil {
+							hasMissing = true
+							break
+						}
+					}
+					if hasMissing {
+						fmt.Printf("  正在下载分卷: %s\n", vol.Title)
+						err := dl.DownloadVolume(ctx, targetID, &vol, func(ev downloader.ProgressEvent) {
+							fmt.Printf("\r    [%d/%d] 正在处理: %-30s", ev.Current, ev.Total, ev.ItemTitle)
+						})
+						if err != nil {
+							fmt.Printf("\n    [警告] 分卷 %s 下载部分出错: %v\n", vol.Title, err)
+						} else {
+							fmt.Printf("\n    [完成] 分卷 %s 同步完成\n", vol.Title)
+						}
+					}
+				}
+				if detail, err := src.GetBookDetail(ctx, targetID); err == nil {
+					_ = store.SaveBookDetail(detail)
+				}
+				fmt.Printf("[完成] 书籍「%s」增量更新同步完毕！\n", info.Title)
+				return nil
+			}
+
+			// Batch check or batch sync across bookshelf
+			fmt.Printf("[更新检查] 正在扫描全书架 %d 本小说...\n", len(cachedBooks))
+			var updateList []*storage.BookUpdateInfo
+			for i, b := range cachedBooks {
+				fmt.Printf("\r  [%d/%d] 正在对比: %-30s", i+1, len(cachedBooks), b.Title)
+				info, err := store.CheckBookUpdate(ctx, src, b.ID)
+				if err == nil && info.HasUpdate {
+					updateList = append(updateList, info)
+				}
+			}
+			fmt.Println()
+
+			if len(updateList) == 0 {
+				fmt.Println("\n[最新] 全书架所有书籍均为最新章节，无需更新。")
+				return nil
+			}
+
+			fmt.Printf("\n[更新报告] 共有 %d 本小说发现新章节:\n", len(updateList))
+			fmt.Println(strings.Repeat("-", 80))
+			for i, item := range updateList {
+				fmt.Printf("[%2d] %-30s | 本地: %-4d章 -> 远端: %-4d章 | +%-2d 新章节 | ID: %s\n",
+					i+1, item.Title, item.LocalChapters, item.RemoteChapters, item.NewChapterCount, item.BookID)
+			}
+			fmt.Println(strings.Repeat("-", 80))
+
+			if checkOnly || !updateAll {
+				fmt.Println("使用 'lnr update --all' 批量同步全部更新，或使用 'lnr update <ID>' 同步指定小说")
+				return nil
+			}
+
+			// Synchronize all
+			fmt.Println("\n[同步开始] 正在批量同步增量章节...")
+			dl, err := downloader.NewDownloader(src, store)
+			if err != nil {
+				return err
+			}
+
+			for idx, item := range updateList {
+				fmt.Printf("\n[%d/%d] 正在同步: %s (ID: %s)\n", idx+1, len(updateList), item.Title, item.BookID)
+				_ = store.SaveCatalog(item.RemoteCatalog)
+
+				for _, vol := range item.RemoteCatalog.Volumes {
+					hasMissing := false
+					for _, ch := range vol.Chapters {
+						if _, err := store.LoadChapter(item.BookID, ch.ID); err != nil {
+							hasMissing = true
+							break
+						}
+					}
+					if hasMissing {
+						_ = dl.DownloadVolume(ctx, item.BookID, &vol, func(ev downloader.ProgressEvent) {
+							fmt.Printf("\r  [%d/%d] 正在处理: %-30s", ev.Current, ev.Total, ev.ItemTitle)
+						})
+					}
+				}
+				if detail, err := src.GetBookDetail(ctx, item.BookID); err == nil {
+					_ = store.SaveBookDetail(detail)
+				}
+				fmt.Printf("\n  [完成] %s 同步完毕\n", item.Title)
+			}
+
+			fmt.Println("\n[全部完成] 全书架增量更新同步已全部就绪！")
+			return nil
+		},
+	}
+	updateCmd.Flags().BoolP("check", "c", false, "仅检查更新，不执行下载同步")
+	updateCmd.Flags().BoolP("all", "a", false, "自动同步全书架所有有更新的书籍")
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
