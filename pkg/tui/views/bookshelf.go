@@ -1,41 +1,60 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/model"
+	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
 
+type updateCheckResultMsg struct {
+	updates map[string]int
+	err     error
+}
+
 // BookshelfView displays locally cached novels with cursor navigation.
 type BookshelfView struct {
-	store         *storage.Storage
-	books         []model.BookDetail
-	pinnedSet     map[string]bool
-	cursor        int
-	offset        int
-	width         int
-	height        int
-	loaded        bool
-	confirmDelete bool
-	onSelect      func(bookID string) tea.Cmd
-	onExport      func(bookID string, volumeIndex int) tea.Cmd
+	store           *storage.Storage
+	src             source.DataSource
+	books           []model.BookDetail
+	pinnedSet       map[string]bool
+	cursor          int
+	offset          int
+	width           int
+	height          int
+	loaded          bool
+	confirmDelete   bool
+	sortCriteria    storage.SortCriteria
+	checkingUpdates bool
+	updatesMap      map[string]int
+	onSelect        func(bookID string) tea.Cmd
+	onExport        func(bookID string, volumeIndex int) tea.Cmd
 }
 
 // NewBookshelfView constructs bookshelf model.
 func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.Cmd) *BookshelfView {
 	return &BookshelfView{
-		store:     store,
-		books:     make([]model.BookDetail, 0),
-		pinnedSet: make(map[string]bool),
-		onSelect:  onSelect,
+		store:        store,
+		books:        make([]model.BookDetail, 0),
+		pinnedSet:    make(map[string]bool),
+		updatesMap:   make(map[string]int),
+		sortCriteria: storage.SortByLastRead,
+		onSelect:     onSelect,
 	}
+}
+
+// SetSource provides data source for checking online chapter updates.
+func (v *BookshelfView) SetSource(src source.DataSource) {
+	v.src = src
 }
 
 // SetOnExport registers export callback.
@@ -54,25 +73,9 @@ func (v *BookshelfView) Reload() {
 				v.pinnedSet[id] = true
 			}
 
-			// Partition books: pinned books first in order, then unpinned books
-			bookMap := make(map[string]model.BookDetail, len(books))
-			for _, b := range books {
-				bookMap[b.ID] = b
-			}
-
-			orderedBooks := make([]model.BookDetail, 0, len(books))
-			for _, id := range pinnedIDs {
-				if b, ok := bookMap[id]; ok {
-					orderedBooks = append(orderedBooks, b)
-					delete(bookMap, id)
-				}
-			}
-			for _, b := range books {
-				if _, ok := bookMap[b.ID]; ok {
-					orderedBooks = append(orderedBooks, b)
-				}
-			}
-			v.books = orderedBooks
+			// Sort books using active sort criteria and pinned status
+			v.store.SortBooks(books, v.sortCriteria)
+			v.books = books
 		}
 	}
 	if v.pinnedSet == nil {
@@ -140,8 +143,42 @@ func (v *BookshelfView) adjustOffset() {
 	}
 }
 
+func (v *BookshelfView) checkUpdatesCmd() tea.Cmd {
+	v.checkingUpdates = true
+	return func() tea.Msg {
+		if v.src == nil || v.store == nil {
+			return updateCheckResultMsg{err: fmt.Errorf("数据源未就绪")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer cancel()
+
+		updates := make(map[string]int)
+		for _, b := range v.books {
+			info, err := v.store.CheckBookUpdate(ctx, v.src, b.ID)
+			if err == nil && info.HasUpdate {
+				updates[b.ID] = info.NewChapterCount
+			}
+		}
+		return updateCheckResultMsg{updates: updates}
+	}
+}
+
 func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateCheckResultMsg:
+		v.checkingUpdates = false
+		v.updatesMap = msg.updates
+		count := len(msg.updates)
+		var statusText string
+		if count > 0 {
+			statusText = fmt.Sprintf("检查更新完毕: 发现 %d 部小说有新章节！", count)
+		} else {
+			statusText = "全书架藏书均为最新章节，暂无更新"
+		}
+		return v, func() tea.Msg {
+			return common.StatusMsg(statusText)
+		}
+
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
@@ -213,6 +250,41 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 				v.cursor = len(v.books) - 1
 				v.adjustOffset()
 			}
+		case "o", "O":
+			switch v.sortCriteria {
+			case storage.SortByLastRead:
+				v.sortCriteria = storage.SortByLastUpdated
+			case storage.SortByLastUpdated:
+				v.sortCriteria = storage.SortByTitle
+			case storage.SortByTitle:
+				v.sortCriteria = storage.SortBySize
+			case storage.SortBySize:
+				v.sortCriteria = storage.SortByLastRead
+			}
+			v.Reload()
+			v.cursor = 0
+			v.offset = 0
+			sortName := storage.SortCriteriaNames[v.sortCriteria]
+			return v, func() tea.Msg {
+				return common.StatusMsg(fmt.Sprintf("书架排序已切换为: %s", sortName))
+			}
+		case "u", "U":
+			if v.src == nil {
+				return v, func() tea.Msg {
+					return common.StatusMsg("数据源未连接，无法检查更新")
+				}
+			}
+			if len(v.books) == 0 {
+				return v, func() tea.Msg {
+					return common.StatusMsg("书架暂无藏书")
+				}
+			}
+			return v, tea.Batch(
+				func() tea.Msg {
+					return common.StatusMsg("正在联网检查书架更新...")
+				},
+				v.checkUpdatesCmd(),
+			)
 		case "p":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
 				b := v.books[v.cursor]
@@ -250,14 +322,16 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 			}
 		case "enter":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
-				selectedID := v.books[v.cursor].ID
-				if v.onSelect != nil {
-					return v, v.onSelect(selectedID)
-				}
-				return v, func() tea.Msg {
-					return common.SwitchViewMsg{
-						Target: common.ViewCatalog,
-						BookID: selectedID,
+				selectedID := v.resultsID(v.cursor)
+				if selectedID != "" {
+					if v.onSelect != nil {
+						return v, v.onSelect(selectedID)
+					}
+					return v, func() tea.Msg {
+						return common.SwitchViewMsg{
+							Target: common.ViewCatalog,
+							BookID: selectedID,
+						}
 					}
 				}
 			}
@@ -266,6 +340,13 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 		}
 	}
 	return v, nil
+}
+
+func (v *BookshelfView) resultsID(idx int) string {
+	if idx >= 0 && idx < len(v.books) {
+		return v.books[idx].ID
+	}
+	return ""
 }
 
 func (v *BookshelfView) View() string {
@@ -296,7 +377,13 @@ func (v *BookshelfView) View() string {
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).
 			Render(runewidth.Truncate(delPrompt, maxWidth, "..."))
 	} else {
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本)  •  [p] 置顶  •  [d/x] 删除  •  [e] 导出全本  •  [s] 分卷全导出  •  [Enter] 目录", curPos, len(v.books))
+		sortName := storage.SortCriteriaNames[v.sortCriteria]
+		var updateStatus string
+		if v.checkingUpdates {
+			updateStatus = " • [检查中...]"
+		}
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [排序: %s(o)] • [u] 检查更新 • [p] 置顶 • [x] 删除%s",
+			curPos, len(v.books), sortName, updateStatus)
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 			Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	}
@@ -338,19 +425,32 @@ func (v *BookshelfView) View() string {
 		if v.pinnedSet != nil && v.pinnedSet[b.ID] {
 			pinBadge = theme.BadgeWarning.Render("置顶")
 		}
+		var updateBadge string
+		if v.updatesMap != nil && v.updatesMap[b.ID] > 0 {
+			updateBadge = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(theme.TextWhite).
+				Background(theme.AccentEmerald).
+				Padding(0, 1).
+				Render(fmt.Sprintf("更新:+%d章", v.updatesMap[b.ID]))
+		}
 		var compBadge string
 		if b.IsComplete {
 			compBadge = theme.BadgeSuccess.Render("完结")
 		}
 
 		var line1Badges string
-		if pinBadge != "" && compBadge != "" {
-			line1Badges = pinBadge + " " + compBadge
-		} else if pinBadge != "" {
-			line1Badges = pinBadge
-		} else if compBadge != "" {
-			line1Badges = compBadge
+		badges := make([]string, 0, 3)
+		if pinBadge != "" {
+			badges = append(badges, pinBadge)
 		}
+		if updateBadge != "" {
+			badges = append(badges, updateBadge)
+		}
+		if compBadge != "" {
+			badges = append(badges, compBadge)
+		}
+		line1Badges = strings.Join(badges, " ")
 
 		desc := strings.ReplaceAll(b.Description, "\r", " ")
 		desc = strings.ReplaceAll(desc, "\n", " ")

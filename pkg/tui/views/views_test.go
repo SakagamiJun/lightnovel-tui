@@ -453,3 +453,37 @@ func TestSearchExploreModeToggle(t *testing.T) {
 		t.Errorf("expected input to be focused after '/'")
 	}
 }
+
+func TestBookshelfSortingAndUpdates(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b1 := &model.BookDetail{BookSummary: model.BookSummary{ID: "b1", Title: "刀剑神域"}}
+	b2 := &model.BookDetail{BookSummary: model.BookSummary{ID: "b2", Title: "加速世界"}}
+	_ = store.SaveBookDetail(b1)
+	_ = store.SaveBookDetail(b2)
+
+	bv := NewBookshelfView(store, nil)
+	bv.SetSize(80, 24)
+	bv.Reload()
+
+	if bv.sortCriteria != storage.SortByLastRead {
+		t.Errorf("expected default sort SortByLastRead, got %v", bv.sortCriteria)
+	}
+
+	// Press 'o' to cycle sort criteria
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	if bv.sortCriteria != storage.SortByLastUpdated {
+		t.Errorf("expected SortByLastUpdated after 'o', got %v", bv.sortCriteria)
+	}
+
+	// Set update badges
+	bv.updatesMap = map[string]int{"b1": 3}
+	out := bv.View()
+	if !strings.Contains(out, "更新:+3章") {
+		t.Errorf("expected view to contain '更新:+3章', got: %s", out)
+	}
+}

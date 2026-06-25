@@ -45,6 +45,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
+	m.bookshelfView.SetSource(src)
 	m.bookshelfView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
 		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
