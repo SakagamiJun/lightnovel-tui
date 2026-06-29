@@ -261,6 +261,17 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 				return v, v.loadImageCmd(v.imageIndex)
 			}
 
+		case "t", "T":
+			if v.reader != nil {
+				v.reader.ToggleTraditional()
+				yOffset := v.viewport.YOffset
+				lines := v.reader.Lines()
+				content := strings.Join(lines, "\n\n")
+				v.viewport.SetContent(content)
+				v.viewport.SetYOffset(yOffset)
+			}
+			return v, nil
+
 		case "esc":
 			// Save progress on exit
 			if v.reader != nil {
@@ -327,12 +338,27 @@ func (v *ReaderView) View() string {
 			Render(fmt.Sprintf("插图:%d张[i]", illuCount))
 	}
 
+	var tradBadge string
+	if v.reader != nil && v.reader.IsTraditional() {
+		tradBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#A7F3D0")).
+			Background(lipgloss.Color("#064E3B")).
+			Padding(0, 1).
+			Render("繁体[t]")
+	} else {
+		tradBadge = lipgloss.NewStyle().
+			Foreground(theme.TextMuted).
+			Render("[t]繁简")
+	}
+
 	keyHints := lipgloss.NewStyle().Foreground(theme.TextMuted).
 		Render("[j/k/滚轮/空格] 翻页  •  [Esc] 返回目录")
 
 	headerParts := []string{
 		lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(title),
 		progressBadge,
+		tradBadge,
 	}
 	if illuBadge != "" {
 		headerParts = append(headerParts, illuBadge)

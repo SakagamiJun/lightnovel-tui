@@ -13,8 +13,9 @@ import (
 
 // Exporter manages creating EPUB files from local cache or downloading missing content on demand.
 type Exporter struct {
-	store *storage.Storage
-	dl    *downloader.Downloader
+	store       *storage.Storage
+	dl          *downloader.Downloader
+	traditional bool
 }
 
 // NewExporter creates a novel EPUB exporter.
@@ -23,6 +24,11 @@ func NewExporter(store *storage.Storage, dl *downloader.Downloader) *Exporter {
 		store: store,
 		dl:    dl,
 	}
+}
+
+// SetTraditional configures whether exported EPUBs should be in Traditional Chinese.
+func (e *Exporter) SetTraditional(traditional bool) {
+	e.traditional = traditional
 }
 
 // ExportVolume exports a specific volume into a standalone EPUB file.
@@ -44,6 +50,7 @@ func (e *Exporter) ExportVolume(ctx context.Context, bookID string, volumeIndex 
 	vol := catalog.Volumes[volumeIndex-1]
 	title := fmt.Sprintf("%s - %s", detail.Title, vol.Title)
 	builder := NewBuilder(bookID+"_"+vol.ID, title, detail.Author, detail.Publisher, detail.Description)
+	builder.SetTraditional(e.traditional)
 
 	// Resolve local cover
 	coverPath := e.resolveCover(ctx, bookID, detail.CoverURL)
@@ -97,6 +104,7 @@ func (e *Exporter) ExportFullBook(ctx context.Context, bookID string, outputPath
 	}
 
 	builder := NewBuilder(bookID, detail.Title, detail.Author, detail.Publisher, detail.Description)
+	builder.SetTraditional(e.traditional)
 
 	coverPath := e.resolveCover(ctx, bookID, detail.CoverURL)
 	builder.SetCover(coverPath)

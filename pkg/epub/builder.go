@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"lnr-core/pkg/model"
+	"lnr-core/pkg/text"
 )
 
 // bufferPool provides reusable 32KB buffers for streaming zip writes.
@@ -48,6 +49,7 @@ type Builder struct {
 	CoverPath   string
 	Chapters    []ChapterItem
 	Images      map[string]ImageItem // localPath -> ImageItem
+	Traditional bool
 }
 
 // NewBuilder creates a new EPUB builder instance.
@@ -61,6 +63,11 @@ func NewBuilder(bookID, title, author, publisher, description string) *Builder {
 		Chapters:    make([]ChapterItem, 0),
 		Images:      make(map[string]ImageItem),
 	}
+}
+
+// SetTraditional configures whether to convert exported text to Traditional Chinese.
+func (b *Builder) SetTraditional(traditional bool) {
+	b.Traditional = traditional
 }
 
 // SetCover specifies the local path to the cover image.
@@ -208,13 +215,18 @@ func (b *Builder) WriteTo(w io.Writer, imageResolver func(url string) string) er
 }
 
 func (b *Builder) writeChapterXHTML(w io.Writer, ch ChapterItem, imageResolver func(url string) string) error {
+	chTitle := ch.Title
+	if b.Traditional {
+		chTitle = text.ToTraditional(chTitle)
+	}
+
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
     <title>`)
-	sb.WriteString(html.EscapeString(ch.Title))
+	sb.WriteString(html.EscapeString(chTitle))
 	sb.WriteString(`</title>
     <style type="text/css">
         body { font-family: "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif; line-height: 1.8; margin: 1.5em; }
@@ -226,15 +238,18 @@ func (b *Builder) writeChapterXHTML(w io.Writer, ch ChapterItem, imageResolver f
 </head>
 <body>
     <h2>`)
-	sb.WriteString(html.EscapeString(ch.Title))
+	sb.WriteString(html.EscapeString(chTitle))
 	sb.WriteString("</h2>\n")
 
 	for _, el := range ch.Elements {
 		if el.Type == model.ContentTypeText {
 			paras := strings.Split(el.Text, "\n")
 			for _, p := range paras {
-				p = strings.TrimSpace(p)
+				p = text.CleanParagraph(p)
 				if p != "" {
+					if b.Traditional {
+						p = text.ToTraditional(p)
+					}
 					sb.WriteString("    <p>")
 					sb.WriteString(html.EscapeString(p))
 					sb.WriteString("</p>\n")
@@ -255,6 +270,11 @@ func (b *Builder) writeChapterXHTML(w io.Writer, ch ChapterItem, imageResolver f
 
 func (b *Builder) writeTocNcx(w io.Writer) error {
 	var sb strings.Builder
+	bookTitle := b.Title
+	if b.Traditional {
+		bookTitle = text.ToTraditional(bookTitle)
+	}
+
 	sb.WriteString(`<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
     <head>
@@ -266,16 +286,20 @@ func (b *Builder) writeTocNcx(w io.Writer) error {
         <meta name="dtb:maxPageNumber" content="0"/>
     </head>
     <docTitle><text>`)
-	sb.WriteString(html.EscapeString(b.Title))
+	sb.WriteString(html.EscapeString(bookTitle))
 	sb.WriteString(`</text></docTitle>
     <navMap>
 `)
 	for i, ch := range b.Chapters {
+		title := ch.Title
+		if b.Traditional {
+			title = text.ToTraditional(title)
+		}
 		sb.WriteString(fmt.Sprintf(`        <navPoint id="navPoint-%d" playOrder="%d">
             <navLabel><text>%s</text></navLabel>
             <content src="%s"/>
         </navPoint>
-`, i+1, i+1, html.EscapeString(ch.Title), ch.FileName))
+`, i+1, i+1, html.EscapeString(title), ch.FileName))
 	}
 	sb.WriteString("    </navMap>\n</ncx>\n")
 	_, err := io.WriteString(w, sb.String())
@@ -284,6 +308,11 @@ func (b *Builder) writeTocNcx(w io.Writer) error {
 
 func (b *Builder) writeNavXHTML(w io.Writer) error {
 	var sb strings.Builder
+	tocTitle := "目录"
+	if b.Traditional {
+		tocTitle = "目錄"
+	}
+
 	sb.WriteString(`<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -292,12 +321,16 @@ func (b *Builder) writeNavXHTML(w io.Writer) error {
 </head>
 <body>
     <nav epub:type="toc" id="toc">
-        <h1>目录</h1>
+        <h1>` + tocTitle + `</h1>
         <ol>
 `)
 	for _, ch := range b.Chapters {
+		title := ch.Title
+		if b.Traditional {
+			title = text.ToTraditional(title)
+		}
 		sb.WriteString(fmt.Sprintf(`            <li><a href="%s">%s</a></li>
-`, ch.FileName, html.EscapeString(ch.Title)))
+`, ch.FileName, html.EscapeString(title)))
 	}
 	sb.WriteString(`        </ol>
     </nav>
@@ -311,18 +344,32 @@ func (b *Builder) writeNavXHTML(w io.Writer) error {
 func (b *Builder) writeContentOpf(w io.Writer, hasCover bool, coverItem ImageItem) error {
 	var sb strings.Builder
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	bookTitle := b.Title
+	author := b.Author
+	publisher := b.Publisher
+	desc := b.Description
+	lang := "zh-CN"
+	if b.Traditional {
+		bookTitle = text.ToTraditional(bookTitle)
+		author = text.ToTraditional(author)
+		publisher = text.ToTraditional(publisher)
+		desc = text.ToTraditional(desc)
+		lang = "zh-TW"
+	}
+
 	sb.WriteString(fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
         <dc:identifier id="BookId">urn:uuid:%s</dc:identifier>
         <dc:title>%s</dc:title>
-        <dc:language>zh-CN</dc:language>
+        <dc:language>%s</dc:language>
         <dc:creator>%s</dc:creator>
         <dc:publisher>%s</dc:publisher>
         <dc:description>%s</dc:description>
         <meta property="dcterms:modified">%s</meta>
-`, html.EscapeString(b.BookID), html.EscapeString(b.Title), html.EscapeString(b.Author),
-		html.EscapeString(b.Publisher), html.EscapeString(b.Description), now))
+`, html.EscapeString(b.BookID), html.EscapeString(bookTitle), lang, html.EscapeString(author),
+		html.EscapeString(publisher), html.EscapeString(desc), now))
 
 	if hasCover {
 		sb.WriteString(`        <meta name="cover" content="cover-image"/>` + "\n")

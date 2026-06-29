@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/text"
 )
 
 // ReadingProgress records the reading location of a book.
@@ -30,6 +30,7 @@ type Reader struct {
 	currChapter   *model.ChapterContent
 	lines         []string
 	illustrations []string
+	traditional   bool
 }
 
 // NewReader initializes a Reader engine for a cached book.
@@ -55,26 +56,30 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 	}
 
 	r.currChapter = ch
-	r.lines = make([]string, 0)
-	r.illustrations = make([]string, 0)
-
-	// Format paragraphs into clean lines for TUI/GUI viewports
-	for _, el := range ch.Elements {
-		if el.Type == model.ContentTypeText {
-			for _, line := range strings.Split(el.Text, "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					r.lines = append(r.lines, "  "+line) // standard Chinese novel indentation
-				}
-			}
-		} else if el.Type == model.ContentTypeImage {
-			r.illustrations = append(r.illustrations, el.URL)
-			imgIndex := len(r.illustrations)
-			r.lines = append(r.lines, fmt.Sprintf("[插图: 第 %d 张] (按 [i] 查看插图大图)", imgIndex))
-		}
-	}
-
+	r.lines, r.illustrations = text.FormatNovelLines(ch.Elements, r.traditional)
 	return ch, nil
+}
+
+// SetTraditional sets whether to format text in Traditional Chinese.
+func (r *Reader) SetTraditional(traditional bool) {
+	if r.traditional == traditional {
+		return
+	}
+	r.traditional = traditional
+	if r.currChapter != nil {
+		r.lines, r.illustrations = text.FormatNovelLines(r.currChapter.Elements, r.traditional)
+	}
+}
+
+// ToggleTraditional flips the Traditional Chinese mode.
+func (r *Reader) ToggleTraditional() bool {
+	r.SetTraditional(!r.traditional)
+	return r.traditional
+}
+
+// IsTraditional returns whether Traditional Chinese conversion is active.
+func (r *Reader) IsTraditional() bool {
+	return r.traditional
 }
 
 // Lines returns the formatted readable lines of the current loaded chapter.

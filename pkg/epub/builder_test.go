@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"lnr-core/pkg/model"
@@ -208,6 +209,60 @@ func TestExporterAllVolumes(t *testing.T) {
 		}
 		if fi.Size() == 0 {
 			t.Errorf("output file %d is empty", i+1)
+		}
+	}
+}
+
+func TestTraditionalEPUBBuilder(t *testing.T) {
+	builder := NewBuilder("1001", "关于我转生变成史莱姆这档事", "伏濑", "微杂志社", "史莱姆冒险")
+	builder.SetTraditional(true)
+
+	builder.AddChapter("ch1", "第一章 异界转生", []model.ContentElement{
+		{Type: model.ContentTypeText, Text: "今天天气真好,阳光明媚.\nwenku8.com 录入\n新的冒险开始了!"},
+	}, nil)
+
+	var buf bytes.Buffer
+	if err := builder.WriteTo(&buf, nil); err != nil {
+		t.Fatalf("WriteTo failed: %v", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("zip.NewReader failed: %v", err)
+	}
+
+	for _, f := range zr.File {
+		if f.Name == "OEBPS/chapter_ch1.xhtml" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("failed to open chapter xhtml: %v", err)
+			}
+			defer rc.Close()
+			content, _ := io.ReadAll(rc)
+			s := string(content)
+			if !strings.Contains(s, "第一章 異界轉生") {
+				t.Errorf("expected traditional chapter title, got: %s", s)
+			}
+			if !strings.Contains(s, "今天天氣真好，陽光明媚。") {
+				t.Errorf("expected cleaned and converted traditional text, got: %s", s)
+			}
+			if strings.Contains(s, "wenku8.com") {
+				t.Errorf("expected watermark filtered out, got: %s", s)
+			}
+		} else if f.Name == "OEBPS/content.opf" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("failed to open content.opf: %v", err)
+			}
+			defer rc.Close()
+			content, _ := io.ReadAll(rc)
+			s := string(content)
+			if !strings.Contains(s, "<dc:language>zh-TW</dc:language>") {
+				t.Errorf("expected zh-TW language tag in opf, got: %s", s)
+			}
+			if !strings.Contains(s, "關于我轉生變成史萊姆這檔事") {
+				t.Errorf("expected traditional book title in opf, got: %s", s)
+			}
 		}
 	}
 }

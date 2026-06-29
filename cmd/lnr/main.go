@@ -225,10 +225,12 @@ func main() {
 			targetVol, _ := cmd.Flags().GetInt("volume")
 			split, _ := cmd.Flags().GetBool("split")
 			outputPath, _ := cmd.Flags().GetString("output")
+			traditional, _ := cmd.Flags().GetBool("traditional")
 			ctx := context.Background()
 
 			dl, _ := downloader.NewDownloader(src, store)
 			exporter := epub.NewExporter(store, dl)
+			exporter.SetTraditional(traditional)
 
 			if split {
 				fmt.Printf("[导出] 正在将书籍 %s 的所有分卷分别导出为独立 EPUB 文件...\n", bookID)
@@ -263,6 +265,7 @@ func main() {
 	exportCmd.Flags().IntP("volume", "v", 0, "指定导出分卷 (默认0表示整本导出)")
 	exportCmd.Flags().BoolP("split", "s", false, "将所有分卷分别导出为独立的 EPUB 文件 (每卷一个 EPUB)")
 	exportCmd.Flags().StringP("output", "o", "", "指定导出 EPUB 文件路径或保存目录")
+	exportCmd.Flags().BoolP("traditional", "t", false, "转换为繁体中文 (Traditional Chinese) 导出")
 
 	// 5. cover command
 	coverCmd := &cobra.Command{

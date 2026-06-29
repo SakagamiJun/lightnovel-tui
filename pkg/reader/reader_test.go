@@ -91,4 +91,17 @@ func TestReaderEngine(t *testing.T) {
 	if loadedP.LineIndex != 2 || loadedP.ChapterID != "c1" {
 		t.Errorf("mismatched reading progress: %+v", loadedP)
 	}
+
+	// Test Traditional Toggle
+	if r.IsTraditional() {
+		t.Errorf("expected initially simplified")
+	}
+	r.ToggleTraditional()
+	if !r.IsTraditional() {
+		t.Errorf("expected traditional active after toggle")
+	}
+	tradLines := r.Lines()
+	if len(tradLines) != 3 || tradLines[0] != "\u3000\u3000微風吹拂著山丘。" {
+		t.Errorf("unexpected traditional line: %q", tradLines[0])
+	}
 }
