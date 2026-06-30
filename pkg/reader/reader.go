@@ -136,3 +136,59 @@ func (r *Reader) LoadProgress() (*ReadingProgress, error) {
 	}
 	return &p, nil
 }
+
+// ChapterPosition returns (currentChapterIndex, totalChaptersInVolume, volumeTitle).
+// Index is 1-based.
+func (r *Reader) ChapterPosition() (int, int, string) {
+	if r.catalog == nil || r.currChapter == nil {
+		return 1, 1, ""
+	}
+	for _, vol := range r.catalog.Volumes {
+		for i, ch := range vol.Chapters {
+			if ch.ID == r.currChapter.ID {
+				return i + 1, len(vol.Chapters), vol.Title
+			}
+		}
+	}
+	return 1, 1, ""
+}
+
+// NextChapter returns the next chapter ID and title if available.
+func (r *Reader) NextChapter() (string, string, bool) {
+	if r.catalog == nil || r.currChapter == nil {
+		return "", "", false
+	}
+	found := false
+	for _, vol := range r.catalog.Volumes {
+		for _, ch := range vol.Chapters {
+			if found {
+				return ch.ID, ch.Title, true
+			}
+			if ch.ID == r.currChapter.ID {
+				found = true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// PrevChapter returns the previous chapter ID and title if available.
+func (r *Reader) PrevChapter() (string, string, bool) {
+	if r.catalog == nil || r.currChapter == nil {
+		return "", "", false
+	}
+	var prevID, prevTitle string
+	for _, vol := range r.catalog.Volumes {
+		for _, ch := range vol.Chapters {
+			if ch.ID == r.currChapter.ID {
+				if prevID != "" {
+					return prevID, prevTitle, true
+				}
+				return "", "", false
+			}
+			prevID = ch.ID
+			prevTitle = ch.Title
+		}
+	}
+	return "", "", false
+}

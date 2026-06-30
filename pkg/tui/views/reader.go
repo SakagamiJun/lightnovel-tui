@@ -14,6 +14,7 @@ import (
 	"lnr-core/pkg/reader"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/text"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
@@ -51,6 +52,9 @@ type ReaderView struct {
 	imagePath      string
 	imageErr       error
 	imageViewport  viewport.Model
+
+	// Reader color theme preset
+	themeIndex int
 }
 
 // NewReaderView constructs an immersive terminal reader view.
@@ -171,6 +175,29 @@ func (v *ReaderView) loadImageCmd(index int) tea.Cmd {
 	}
 }
 
+func (v *ReaderView) currentTheme() theme.ReaderTheme {
+	return theme.GetReaderTheme(theme.ReaderThemeID(v.themeIndex))
+}
+
+func (v *ReaderView) refreshViewportContent() {
+	if v.reader == nil {
+		return
+	}
+	lines := v.reader.Lines()
+	curTheme := v.currentTheme()
+	textStyle := lipgloss.NewStyle().Foreground(curTheme.Text)
+
+	styledLines := make([]string, len(lines))
+	for i, l := range lines {
+		if strings.HasPrefix(l, "[插图:") {
+			styledLines[i] = lipgloss.NewStyle().Bold(true).Foreground(curTheme.Accent).Render(l)
+		} else {
+			styledLines[i] = textStyle.Render(l)
+		}
+	}
+	v.viewport.SetContent(strings.Join(styledLines, "\n\n"))
+}
+
 func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -179,9 +206,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		v.loading = false
 		v.err = msg.err
 		if v.err == nil && v.reader != nil {
-			lines := v.reader.Lines()
-			content := strings.Join(lines, "\n\n")
-			v.viewport.SetContent(content)
+			v.refreshViewportContent()
 			v.viewport.GotoTop()
 
 			// Check if bookmark exists
@@ -261,13 +286,18 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 				return v, v.loadImageCmd(v.imageIndex)
 			}
 
+		case "c", "C":
+			v.themeIndex = (v.themeIndex + 1) % len(theme.ReaderThemes)
+			yOffset := v.viewport.YOffset
+			v.refreshViewportContent()
+			v.viewport.SetYOffset(yOffset)
+			return v, nil
+
 		case "t", "T":
 			if v.reader != nil {
 				v.reader.ToggleTraditional()
 				yOffset := v.viewport.YOffset
-				lines := v.reader.Lines()
-				content := strings.Join(lines, "\n\n")
-				v.viewport.SetContent(content)
+				v.refreshViewportContent()
 				v.viewport.SetYOffset(yOffset)
 			}
 			return v, nil
@@ -310,64 +340,97 @@ func (v *ReaderView) View() string {
 		return v.renderImageModal()
 	}
 
+	curTheme := v.currentTheme()
+
 	title := ""
 	if v.reader != nil && v.reader.CurrentChapter() != nil {
 		title = v.reader.CurrentChapter().Title
 	}
-
-	percent := v.viewport.ScrollPercent() * 100
-	progressBadge := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#38BDF8")).
-		Background(lipgloss.Color("#0C4A6E")).
-		Padding(0, 1).
-		Render(fmt.Sprintf("%.1f%%", percent))
+	if v.reader != nil && v.reader.IsTraditional() {
+		title = text.ToTraditional(title)
+	}
 
 	illuCount := 0
 	if v.reader != nil {
 		illuCount = len(v.reader.Illustrations())
 	}
 
-	var illuBadge string
+	// 1. Top Header Bar (1 line)
+	leftTitle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(curTheme.Text).
+		Render(" " + title)
+
+	rightElements := make([]string, 0)
 	if illuCount > 0 {
-		illuBadge = lipgloss.NewStyle().
+		rightElements = append(rightElements, lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FDE047")).
-			Background(lipgloss.Color("#713F12")).
-			Padding(0, 1).
-			Render(fmt.Sprintf("插图:%d张[i]", illuCount))
+			Foreground(curTheme.Accent).
+			Render(fmt.Sprintf("[插图:%d张][i]", illuCount)))
 	}
 
-	var tradBadge string
+	tradLabel := "[t]繁体"
 	if v.reader != nil && v.reader.IsTraditional() {
-		tradBadge = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#A7F3D0")).
-			Background(lipgloss.Color("#064E3B")).
-			Padding(0, 1).
-			Render("繁体[t]")
-	} else {
-		tradBadge = lipgloss.NewStyle().
-			Foreground(theme.TextMuted).
-			Render("[t]繁简")
+		tradLabel = "[t]简体"
+	}
+	rightElements = append(rightElements, lipgloss.NewStyle().Foreground(curTheme.Muted).Render(tradLabel))
+	rightElements = append(rightElements, lipgloss.NewStyle().Foreground(curTheme.Muted).Render("[c]配色"))
+	rightElements = append(rightElements, lipgloss.NewStyle().Foreground(curTheme.Muted).Render("[Esc]返回目录 "))
+
+	rightStr := strings.Join(rightElements, "  ")
+	topBar := leftTitle + "  " + rightStr
+	if v.width > lipgloss.Width(leftTitle)+lipgloss.Width(rightStr) {
+		topGap := v.width - lipgloss.Width(leftTitle) - lipgloss.Width(rightStr)
+		topBar = leftTitle + strings.Repeat(" ", topGap) + rightStr
+	}
+	topBar = lipgloss.NewStyle().
+		Background(curTheme.BarBg).
+		Width(v.width).
+		Render(topBar)
+
+	// 2. Bottom Status Bar (1 line)
+	currChIdx, totalChs, _ := 1, 1, ""
+	if v.reader != nil {
+		currChIdx, totalChs, _ = v.reader.ChapterPosition()
 	}
 
-	keyHints := lipgloss.NewStyle().Foreground(theme.TextMuted).
-		Render("[j/k/滚轮/空格] 翻页  •  [Esc] 返回目录")
-
-	headerParts := []string{
-		lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(title),
-		progressBadge,
-		tradBadge,
+	totalLines := v.viewport.TotalLineCount()
+	currLine := v.viewport.YOffset + 1
+	if currLine > totalLines {
+		currLine = totalLines
 	}
-	if illuBadge != "" {
-		headerParts = append(headerParts, illuBadge)
+	if currLine < 1 {
+		currLine = 1
 	}
-	headerParts = append(headerParts, keyHints)
 
-	header := " " + strings.Join(headerParts, "  ")
+	percent := v.viewport.ScrollPercent() * 100
+	nowTime := time.Now().Format("15:04")
 
-	return header + "\n\n" + v.viewport.View()
+	statusLeft := lipgloss.NewStyle().
+		Foreground(curTheme.Text).
+		Render(fmt.Sprintf(" [第 %d/%d 章] %s", currChIdx, totalChs, title))
+
+	statusMid := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(curTheme.Accent).
+		Render(fmt.Sprintf("第 %d/%d 行 (%.1f%%)", currLine, totalLines, percent))
+
+	statusRight := lipgloss.NewStyle().
+		Foreground(curTheme.Muted).
+		Render(fmt.Sprintf("配色:%s[c]  •  %s ", curTheme.Name, nowTime))
+
+	statusMidContent := statusLeft + "  •  " + statusMid
+	bottomBar := statusMidContent + "  " + statusRight
+	if v.width > lipgloss.Width(statusMidContent)+lipgloss.Width(statusRight) {
+		bottomGap := v.width - lipgloss.Width(statusMidContent) - lipgloss.Width(statusRight)
+		bottomBar = statusMidContent + strings.Repeat(" ", bottomGap) + statusRight
+	}
+	bottomBar = lipgloss.NewStyle().
+		Background(curTheme.BarBg).
+		Width(v.width).
+		Render(bottomBar)
+
+	return topBar + "\n" + v.viewport.View() + "\n" + bottomBar
 }
 
 func (v *ReaderView) renderImageModal() string {

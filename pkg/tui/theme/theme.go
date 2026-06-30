@@ -135,3 +135,77 @@ func FormatWordCount(words int) string {
 	}
 	return "未知字数"
 }
+
+// ReaderThemeID identifies a preset reader color palette.
+type ReaderThemeID int
+
+const (
+	ReaderThemeDark ReaderThemeID = iota
+	ReaderThemeSepia
+	ReaderThemeMono
+	ReaderThemeNord
+)
+
+// ReaderTheme defines styling for reader viewport and status bar.
+type ReaderTheme struct {
+	ID        ReaderThemeID
+	Name      string
+	Text      lipgloss.Color
+	Bg        lipgloss.Color
+	Accent    lipgloss.Color
+	Muted     lipgloss.Color
+	BarBg     lipgloss.Color
+	Highlight lipgloss.Color
+}
+
+// ReaderThemes holds the 4 reader theme presets.
+var ReaderThemes = []ReaderTheme{
+	{
+		ID:        ReaderThemeDark,
+		Name:      "深邃夜间",
+		Text:      lipgloss.Color("#F8FAFC"),
+		Bg:        lipgloss.Color("#0F172A"),
+		Accent:    lipgloss.Color("#38BDF8"),
+		Muted:     lipgloss.Color("#94A3B8"),
+		BarBg:     lipgloss.Color("#1E293B"),
+		Highlight: lipgloss.Color("#1E1B4B"),
+	},
+	{
+		ID:        ReaderThemeSepia,
+		Name:      "护眼复古",
+		Text:      lipgloss.Color("#EADBC8"),
+		Bg:        lipgloss.Color("#2B2520"),
+		Accent:    lipgloss.Color("#D4A373"),
+		Muted:     lipgloss.Color("#9C8E80"),
+		BarBg:     lipgloss.Color("#3D342C"),
+		Highlight: lipgloss.Color("#4A3E35"),
+	},
+	{
+		ID:        ReaderThemeMono,
+		Name:      "纯净墨水",
+		Text:      lipgloss.Color("#E5E5E5"),
+		Bg:        lipgloss.Color("#121212"),
+		Accent:    lipgloss.Color("#D4D4D4"),
+		Muted:     lipgloss.Color("#737373"),
+		BarBg:     lipgloss.Color("#1E1E1E"),
+		Highlight: lipgloss.Color("#262626"),
+	},
+	{
+		ID:        ReaderThemeNord,
+		Name:      "极光冷色",
+		Text:      lipgloss.Color("#ECEFF4"),
+		Bg:        lipgloss.Color("#2E3440"),
+		Accent:    lipgloss.Color("#88C0D0"),
+		Muted:     lipgloss.Color("#7B88A1"),
+		BarBg:     lipgloss.Color("#3B4252"),
+		Highlight: lipgloss.Color("#434C5E"),
+	},
+}
+
+// GetReaderTheme returns a reader theme by ID, falling back to Dark.
+func GetReaderTheme(id ReaderThemeID) ReaderTheme {
+	if int(id) >= 0 && int(id) < len(ReaderThemes) {
+		return ReaderThemes[id]
+	}
+	return ReaderThemes[ReaderThemeDark]
+}
