@@ -725,7 +725,86 @@ func main() {
 	updateCmd.Flags().BoolP("check", "c", false, "仅检查更新，不执行下载同步")
 	updateCmd.Flags().BoolP("all", "a", false, "自动同步全书架所有有更新的书籍")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd)
+	// 11. clean command
+	cleanCmd := &cobra.Command{
+		Use:   "clean",
+		Short: "分析本地存储占用并定向清理插图缓存或导出文件",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cleanImages, _ := cmd.Flags().GetBool("images")
+			cleanEpubs, _ := cmd.Flags().GetBool("epubs")
+			cleanAll, _ := cmd.Flags().GetBool("all")
+
+			if cleanImages {
+				freed, err := store.CleanImagesOnly(true)
+				if err != nil {
+					return fmt.Errorf("清理插图失败: %w", err)
+				}
+				fmt.Printf("[清理完成] 成功清理插图缓存，共释放空间: %s (封面图片已保留)\n", formatBytes(freed))
+				return nil
+			}
+
+			if cleanEpubs {
+				freed, err := store.CleanEpubsOnly("")
+				if err != nil {
+					return fmt.Errorf("清理导出文件失败: %w", err)
+				}
+				fmt.Printf("[清理完成] 成功清理导出目录中的 EPUB 文件，共释放空间: %s\n", formatBytes(freed))
+				return nil
+			}
+
+			if cleanAll {
+				sizeBefore, _ := store.CalculateCacheSize()
+				if err := store.ClearCache(); err != nil {
+					return fmt.Errorf("清空缓存失败: %w", err)
+				}
+				freedEpubs, _ := store.CleanEpubsOnly("")
+				fmt.Printf("[清理完成] 成功清空全部小说缓存与导出文件，共释放空间: %s\n", formatBytes(sizeBefore+freedEpubs))
+				return nil
+			}
+
+			// Default: display storage analysis breakdown
+			breakdown, err := store.GetStorageBreakdown("")
+			if err != nil {
+				return fmt.Errorf("获取存储占用分析失败: %w", err)
+			}
+
+			fmt.Println("==================================================")
+			fmt.Println("             LNR 本地存储占用深度分析              ")
+			fmt.Println("==================================================")
+			fmt.Printf("• 缓存目录: %s\n", store.BaseDir())
+			fmt.Printf("• 正文文本占用: %s\n", formatBytes(breakdown.TextBytes))
+			fmt.Printf("• 插图图片占用: %s\n", formatBytes(breakdown.ImageBytes))
+			fmt.Printf("• 导出电子书:   %s\n", formatBytes(breakdown.EpubBytes))
+			fmt.Printf("• 总磁盘占用:   %s\n", formatBytes(breakdown.TotalBytes))
+			fmt.Println("--------------------------------------------------")
+
+			if len(breakdown.BookItems) > 0 {
+				fmt.Println("[缓存占用排行 Top 5]")
+				limit := 5
+				if len(breakdown.BookItems) < limit {
+					limit = len(breakdown.BookItems)
+				}
+				for i := 0; i < limit; i++ {
+					item := breakdown.BookItems[i]
+					fmt.Printf("  %d. %s (%s) - 总计: %s [插图: %s | 文本: %s]\n",
+						i+1, item.Title, item.BookID,
+						formatBytes(item.TotalBytes), formatBytes(item.ImageBytes), formatBytes(item.TextBytes))
+				}
+				fmt.Println("--------------------------------------------------")
+			}
+
+			fmt.Println("定向清理提示:")
+			fmt.Println("• lnr clean --images  : 仅删除插图缓存释放大空间 (保留正文与封面)")
+			fmt.Println("• lnr clean --epubs   : 仅清理已导出的 EPUB 电子书文件")
+			fmt.Println("• lnr clean --all     : 清空全部小说缓存与导出文件")
+			return nil
+		},
+	}
+	cleanCmd.Flags().BoolP("images", "i", false, "仅清理插图缓存 (保留正文与书籍封面)")
+	cleanCmd.Flags().BoolP("epubs", "e", false, "仅清理已导出的 EPUB 文件")
+	cleanCmd.Flags().BoolP("all", "a", false, "清空所有本地小说缓存与导出文件")
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd, cleanCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -735,4 +814,17 @@ func main() {
 func init() {
 	// Helper to avoid unused strconv import if needed
 	_ = strconv.Itoa(0)
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

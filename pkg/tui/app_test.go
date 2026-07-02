@@ -423,12 +423,26 @@ func TestSettingsEditPathAndClearConfirmation(t *testing.T) {
 		t.Errorf("expected settingsView exportDir to be %s, got %s", newExportDir, app.settingsView.ExportDir())
 	}
 
-	// 3. Move down to 5 (Clear All Cache)
+	// 3. Move down to 5 (Clean Images Only)
 	for i := 0; i < 4; i++ {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	}
 	if app.settingsView.Cursor() != 5 {
 		t.Fatalf("expected cursor at 5, got %d", app.settingsView.Cursor())
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	imgConfirmView := app.View()
+	if !strings.Contains(imgConfirmView, "清理插图") {
+		t.Errorf("expected confirm view to contain '清理插图'")
+	}
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	// 4. Move down to 7 (Clear All Cache)
+	for i := 0; i < 2; i++ {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	}
+	if app.settingsView.Cursor() != 7 {
+		t.Fatalf("expected cursor at 7, got %d", app.settingsView.Cursor())
 	}
 
 	// Press Enter to trigger clear confirmation

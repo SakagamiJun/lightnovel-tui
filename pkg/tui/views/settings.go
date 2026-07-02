@@ -26,20 +26,23 @@ type AppConfig struct {
 
 // SettingsView provides an interactive configuration panel.
 type SettingsView struct {
-	store        *storage.Storage
-	width        int
-	height       int
-	cursor       int
-	cacheSize    int64
-	sizeLoaded   bool
-	scrollStep   int
-	autoBookmark bool
-	confirmClear bool
-	exportDir    string
-	cacheDir     string
-	editingPath  bool
-	editingItem  int // 0 for cacheDir, 1 for exportDir
-	pathInput    textinput.Model
+	store              *storage.Storage
+	width              int
+	height             int
+	cursor             int
+	cacheSize          int64
+	sizeLoaded         bool
+	breakdown          *storage.StorageBreakdown
+	scrollStep         int
+	autoBookmark       bool
+	confirmClear       bool
+	confirmCleanImages bool
+	confirmCleanEpubs  bool
+	exportDir          string
+	cacheDir           string
+	editingPath        bool
+	editingItem        int // 0 for cacheDir, 1 for exportDir
+	pathInput          textinput.Model
 }
 
 func (v *SettingsView) configFilePath() string {
@@ -125,18 +128,23 @@ func (v *SettingsView) saveConfig() {
 	_ = os.WriteFile(cfgPath, data, 0644)
 }
 
-// RecalculateCacheSizeCmd returns a BubbleTea Cmd to asynchronously compute cache size.
+// RecalculateCacheSizeCmd returns a BubbleTea Cmd to asynchronously compute cache size and breakdown.
 func (v *SettingsView) RecalculateCacheSizeCmd() tea.Cmd {
 	return func() tea.Msg {
 		if v.store == nil {
-			return cacheSizeMsg(0)
+			return storageBreakdownMsg{nil}
 		}
-		sz, err := v.store.CalculateCacheSize()
+		bd, err := v.store.GetStorageBreakdown(v.exportDir)
 		if err != nil {
-			return cacheSizeMsg(0)
+			sz, _ := v.store.CalculateCacheSize()
+			return cacheSizeMsg(sz)
 		}
-		return cacheSizeMsg(sz)
+		return storageBreakdownMsg{bd}
 	}
+}
+
+type storageBreakdownMsg struct {
+	breakdown *storage.StorageBreakdown
 }
 
 type cacheSizeMsg int64
@@ -215,6 +223,14 @@ func expandHome(path string) string {
 
 func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 	switch msg := msg.(type) {
+	case storageBreakdownMsg:
+		v.breakdown = msg.breakdown
+		if msg.breakdown != nil {
+			v.cacheSize = msg.breakdown.TotalBytes
+		}
+		v.sizeLoaded = true
+		return v, nil
+
 	case cacheSizeMsg:
 		v.cacheSize = int64(msg)
 		v.sizeLoaded = true
@@ -271,18 +287,65 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 			}
 		}
 
-		// 2. If confirming clear cache
+		// 2. If confirming clean images
+		if v.confirmCleanImages {
+			switch msg.String() {
+			case "y", "Y":
+				v.confirmCleanImages = false
+				var freed int64
+				if v.store != nil {
+					freed, _ = v.store.CleanImagesOnly(true)
+				}
+				return v, tea.Batch(
+					v.RecalculateCacheSizeCmd(),
+					func() tea.Msg {
+						return common.StatusMsg(fmt.Sprintf("[完成] 已成功清理插图缓存，共释放空间: %s (书籍封面已保留)", formatBytes(freed)))
+					},
+				)
+			case "n", "N", "esc":
+				v.confirmCleanImages = false
+				return v, func() tea.Msg { return common.StatusMsg("[提示] 已取消清理插图操作") }
+			}
+			return v, nil
+		}
+
+		// 3. If confirming clean epubs
+		if v.confirmCleanEpubs {
+			switch msg.String() {
+			case "y", "Y":
+				v.confirmCleanEpubs = false
+				var freed int64
+				if v.store != nil {
+					freed, _ = v.store.CleanEpubsOnly(v.exportDir)
+				}
+				return v, tea.Batch(
+					v.RecalculateCacheSizeCmd(),
+					func() tea.Msg {
+						return common.StatusMsg(fmt.Sprintf("[完成] 已成功清理导出目录中的 EPUB 文件，共释放空间: %s", formatBytes(freed)))
+					},
+				)
+			case "n", "N", "esc":
+				v.confirmCleanEpubs = false
+				return v, func() tea.Msg { return common.StatusMsg("[提示] 已取消清理导出文件") }
+			}
+			return v, nil
+		}
+
+		// 4. If confirming clear all cache
 		if v.confirmClear {
 			switch msg.String() {
 			case "y", "Y":
 				v.confirmClear = false
 				if v.store != nil {
 					_ = v.store.ClearCache()
+					_, _ = v.store.CleanEpubsOnly(v.exportDir)
 				}
 				v.cacheSize = 0
 				return v, tea.Batch(
 					v.RecalculateCacheSizeCmd(),
-					func() tea.Msg { return common.StatusMsg("[完成] 已成功清空全部本地小说缓存") },
+					func() tea.Msg {
+						return common.StatusMsg("[完成] 已成功清空全部本地小说缓存与导出文件")
+					},
 				)
 			case "n", "N", "esc":
 				v.confirmClear = false
@@ -291,14 +354,14 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 			return v, nil
 		}
 
-		// 3. Normal navigation & toggle
+		// 5. Normal navigation & toggle
 		switch msg.String() {
 		case "up", "k":
 			if v.cursor > 0 {
 				v.cursor--
 			}
 		case "down", "j":
-			if v.cursor < 5 {
+			if v.cursor < 7 {
 				v.cursor++
 			}
 		case "enter", " ":
@@ -344,13 +407,35 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 					return common.StatusMsg(fmt.Sprintf("阅读自动记录书签已%s", state))
 				}
 
-			case 4: // Refresh cache size
+			case 4: // Storage breakdown refresh & top info
+				if v.breakdown != nil && len(v.breakdown.BookItems) > 0 {
+					top1 := v.breakdown.BookItems[0]
+					return v, tea.Batch(
+						v.RecalculateCacheSizeCmd(),
+						func() tea.Msg {
+							return common.StatusMsg(fmt.Sprintf("[存储排行第一] %s (总计:%s | 插图:%s | 文本:%s)",
+								top1.Title, formatBytes(top1.TotalBytes), formatBytes(top1.ImageBytes), formatBytes(top1.TextBytes)))
+						},
+					)
+				}
 				return v, v.RecalculateCacheSizeCmd()
 
-			case 5: // Clear cache
+			case 5: // Clean images only
+				v.confirmCleanImages = true
+				return v, func() tea.Msg {
+					return common.StatusMsg("[清理确认] 是否仅清理插图缓存 (保留书籍封面与正文)？按键盘 [y] 确认 / 按 [n/Esc] 取消")
+				}
+
+			case 6: // Clean epubs only
+				v.confirmCleanEpubs = true
+				return v, func() tea.Msg {
+					return common.StatusMsg("[清理确认] 是否清理导出目录下的所有 EPUB 文件？按键盘 [y] 确认 / 按 [n/Esc] 取消")
+				}
+
+			case 7: // Clear all cache
 				v.confirmClear = true
 				return v, func() tea.Msg {
-					return common.StatusMsg("[清空确认] 再次确认：请按键盘 [y] 确认执行清空，按 [n/Esc] 取消")
+					return common.StatusMsg("[清空确认] 再次确认：请按键盘 [y] 确认执行清空全部缓存，按 [n/Esc] 取消")
 				}
 			}
 		case "r":
@@ -374,6 +459,12 @@ func (v *SettingsView) View() string {
 	if v.confirmClear {
 		titleText = " [清空确认] 将删除所有已下载章节与图片！请按键盘 [y] 确认清空 / 按 [n/Esc] 取消"
 		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose)
+	} else if v.confirmCleanImages {
+		titleText = " [清理插图] 将删除所有内嵌插图(保留封面与正文)！请按键盘 [y] 确认 / 按 [n/Esc] 取消"
+		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber)
+	} else if v.confirmCleanEpubs {
+		titleText = " [清理导出] 将删除 exports 目录下的全部 EPUB 文件！请按键盘 [y] 确认 / 按 [n/Esc] 取消"
+		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber)
 	} else if v.editingPath {
 		titleText = " [编辑路径] 请输入新路径，按 [Enter] 确认保存，按 [Esc] 取消修改"
 		headerStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky)
@@ -387,16 +478,36 @@ func (v *SettingsView) View() string {
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
 		Render(strings.Repeat("─", maxWidth)) + "\n")
 
-	sizeStr := "正在统计..."
-	if v.sizeLoaded {
-		sizeStr = formatBytes(v.cacheSize)
-	}
-
 	bookmarkStr := "已开启"
 	bookmarkBadge := theme.BadgeSuccess.Render(bookmarkStr)
 	if !v.autoBookmark {
 		bookmarkStr = "已关闭"
 		bookmarkBadge = theme.BadgeMuted.Render(bookmarkStr)
+	}
+
+	analysisVal := "正在统计..."
+	analysisBadge := theme.BadgeInfo.Render("统计中")
+	if v.breakdown != nil {
+		analysisVal = fmt.Sprintf("总计: %s [插图: %s | 正文: %s | 导出: %s]",
+			formatBytes(v.breakdown.TotalBytes),
+			formatBytes(v.breakdown.ImageBytes),
+			formatBytes(v.breakdown.TextBytes),
+			formatBytes(v.breakdown.EpubBytes),
+		)
+		analysisBadge = theme.BadgeInfo.Render(formatBytes(v.breakdown.TotalBytes))
+	} else if v.sizeLoaded {
+		analysisVal = formatBytes(v.cacheSize)
+		analysisBadge = theme.BadgeInfo.Render(analysisVal)
+	}
+
+	imgCleanVal := "安全定向瘦身"
+	if v.breakdown != nil {
+		imgCleanVal = fmt.Sprintf("可释放约 %s (书籍封面仍保留)", formatBytes(v.breakdown.ImageBytes))
+	}
+
+	epubCleanVal := "清空已导出的电子书"
+	if v.breakdown != nil {
+		epubCleanVal = fmt.Sprintf("可释放约 %s", formatBytes(v.breakdown.EpubBytes))
 	}
 
 	type settingItem struct {
@@ -432,14 +543,26 @@ func (v *SettingsView) View() string {
 			desc:  "按 [Enter] 切换是否在阅读时自动记录上次浏览的章节位置",
 		},
 		{
-			label: "缓存空间统计",
-			value: sizeStr,
-			badge: theme.BadgeInfo.Render(sizeStr),
-			desc:  "当前已下载轻小说占用的本地磁盘空间，按 [Enter] 或 [r] 刷新统计",
+			label: "存储空间深度分析",
+			value: analysisVal,
+			badge: analysisBadge,
+			desc:  "细分统计正文、插图及导出 EPUB 占用，按 [Enter] 或 [r] 刷新统计",
 		},
 		{
-			label: "清空全部缓存",
-			value: "清理本地全部小说缓存",
+			label: "定向清理插图缓存",
+			value: imgCleanVal,
+			badge: theme.BadgeWarning.Render("安全瘦身"),
+			desc:  "仅清理插图大图(占90%+空间)，保留正文离线阅读与书籍封面，按 [Enter] 触发",
+		},
+		{
+			label: "定向清理导出文件",
+			value: epubCleanVal,
+			badge: theme.BadgeWarning.Render("清理导出"),
+			desc:  "仅删除导出目录中已打包的 EPUB 文件，按 [Enter] 触发确认",
+		},
+		{
+			label: "清空全部本地缓存",
+			value: "清理本地全部小说缓存与导出文件",
 			badge: theme.BadgeWarning.Render("按Enter清空"),
 			desc:  "按 [Enter] 触发确认，随后需按键盘 [y] 确认执行清空 / 按 [n/Esc] 取消",
 		},
@@ -467,7 +590,21 @@ func (v *SettingsView) View() string {
 					theme.BadgeWarning.Render("编辑中"),
 					lipgloss.NewStyle().Foreground(theme.PrimaryLight).Render("[Enter] 保存 / [Esc] 取消"))
 				line2Text = fmt.Sprintf("%s新路径: %s", barActiveIndent, v.pathInput.View())
-			} else if i == 5 && v.confirmClear {
+			} else if i == 5 && v.confirmCleanImages {
+				line1Text = fmt.Sprintf("%s%s  %s  %s",
+					barActive,
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber).Render(item.label),
+					theme.BadgeWarning.Render("待确认"),
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber).Render("确认清理插图？按 [y] 确认 / 按 [n/Esc] 取消"))
+				line2Text = fmt.Sprintf("%s[提示] 将保留书籍封面与正文离线阅读。按 [y] 执行 / 按 [n/Esc] 放弃", barActiveIndent)
+			} else if i == 6 && v.confirmCleanEpubs {
+				line1Text = fmt.Sprintf("%s%s  %s  %s",
+					barActive,
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber).Render(item.label),
+					theme.BadgeWarning.Render("待确认"),
+					lipgloss.NewStyle().Bold(true).Foreground(theme.AccentAmber).Render("确认清理导出EPUB？按 [y] 确认 / 按 [n/Esc] 取消"))
+				line2Text = fmt.Sprintf("%s[提示] 将删除导出目录中的 EPUB 文件。按 [y] 执行 / 按 [n/Esc] 放弃", barActiveIndent)
+			} else if i == 7 && v.confirmClear {
 				// Clear confirmation mode
 				line1Text = fmt.Sprintf("%s%s  %s  %s",
 					barActive,
