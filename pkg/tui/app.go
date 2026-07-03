@@ -16,14 +16,17 @@ import (
 
 // AppModel is the root Bubble Tea model managing sub-views, headers, and footer.
 type AppModel struct {
-	store       *storage.Storage
-	src         source.DataSource
-	currentView common.ViewID
-	width       int
-	height      int
-	statusText  string
+	store        *storage.Storage
+	src          source.DataSource
+	currentView  common.ViewID
+	prevMainView common.ViewID
+	width        int
+	height       int
+	statusText   string
+	confirmExit  bool
 
 	bookshelfView *views.BookshelfView
+	exploreView   *views.ExploreView
 	searchView    *views.SearchView
 	settingsView  *views.SettingsView
 	catalogView   *views.CatalogView
@@ -33,15 +36,17 @@ type AppModel struct {
 // NewAppModel initializes root TUI application model.
 func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 	m := &AppModel{
-		store:       store,
-		src:         src,
-		currentView: common.ViewBookshelf,
-		statusText:  "[Tab] 切换导航栏  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [q] 退出",
+		store:        store,
+		src:          src,
+		currentView:  common.ViewBookshelf,
+		prevMainView: common.ViewBookshelf,
+		statusText:   "[Tab] 切换导航  │  [↑/↓/滚轮] 选择  │  [Enter] 确认  │  [Esc] 返回/退出",
 	}
 
 	m.settingsView = views.NewSettingsView(store)
 
 	m.bookshelfView = views.NewBookshelfView(store, func(bookID string) tea.Cmd {
+		m.prevMainView = common.ViewBookshelf
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
@@ -50,7 +55,22 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
 
+	m.exploreView = views.NewExploreView(src, store, func(bookID string) tea.Cmd {
+		m.prevMainView = common.ViewExplore
+		m.currentView = common.ViewCatalog
+		return m.catalogView.LoadBook(bookID)
+	})
+	m.exploreView.SetOnDownload(func(bookID string) tea.Cmd {
+		return startDownloadTask(src, store, bookID, 0, func() {
+			m.bookshelfView.Reload()
+		})
+	})
+	m.exploreView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
+		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
+	})
+
 	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
+		m.prevMainView = common.ViewSearch
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)
 	})
@@ -66,6 +86,17 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 	m.catalogView = views.NewCatalogView(store, src, func(bookID, chapterID string) tea.Cmd {
 		m.currentView = common.ViewReader
 		return m.readerView.OpenChapter(bookID, chapterID)
+	})
+	m.catalogView.SetOnBack(func() tea.Cmd {
+		target := m.prevMainView
+		if target == 0 {
+			target = common.ViewBookshelf
+		}
+		m.currentView = target
+		if target == common.ViewBookshelf {
+			m.bookshelfView.Reload()
+		}
+		return nil
 	})
 	m.catalogView.SetOnDownload(func(bookID string, volumeIndex int) tea.Cmd {
 		return startDownloadTask(src, store, bookID, volumeIndex, func() {
@@ -85,6 +116,7 @@ func (m *AppModel) Init() tea.Cmd {
 	return tea.Batch(
 		tea.EnterAltScreen,
 		m.bookshelfView.Init(),
+		m.exploreView.Init(),
 		m.searchView.Init(),
 		m.settingsView.Init(),
 	)
@@ -102,6 +134,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			contentHeight = 1
 		}
 		m.bookshelfView.SetSize(m.width, contentHeight)
+		m.exploreView.SetSize(m.width, contentHeight)
 		m.searchView.SetSize(m.width, contentHeight)
 		m.settingsView.SetSize(m.width, contentHeight)
 		m.catalogView.SetSize(m.width, contentHeight)
@@ -132,15 +165,47 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.currentView == common.ViewBookshelf && msg.String() == "q" {
-			return m, tea.Quit
+
+		// Exit confirmation dialog interaction
+		if m.confirmExit {
+			switch msg.String() {
+			case "enter":
+				return m, tea.Quit
+			case "esc":
+				m.confirmExit = false
+				return m, nil
+			default:
+				m.confirmExit = false
+				return m, nil
+			}
 		}
-		if m.currentView == common.ViewSettings && !m.settingsView.IsEditing() && !m.settingsView.IsConfirmingClear() && msg.String() == "q" {
-			return m, tea.Quit
+
+		// Top-level Esc handling: trigger exit confirmation dialog
+		isMainTab := m.currentView == common.ViewBookshelf ||
+			m.currentView == common.ViewExplore ||
+			m.currentView == common.ViewSearch ||
+			m.currentView == common.ViewSettings
+
+		if msg.String() == "esc" && isMainTab {
+			if m.currentView == common.ViewSettings && (m.settingsView.IsEditing() || m.settingsView.IsConfirmingClear()) {
+				// Let settings view handle esc first (cancelling edit or clear dialog)
+			} else if m.currentView == common.ViewBookshelf && m.bookshelfView.IsConfirmingDelete() {
+				// Let bookshelf view handle esc first (cancelling delete confirmation)
+			} else if m.currentView == common.ViewSearch && m.searchView.IsInputFocused() {
+				// Let search view handle esc first (blurring search input)
+			} else {
+				m.confirmExit = true
+				return m, nil
+			}
 		}
-		if msg.String() == "tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || (m.currentView == common.ViewSettings && !m.settingsView.IsEditing())) {
+
+		// Tab navigation cycling across 4 main tabs
+		canSwitchTab := isMainTab && (m.currentView != common.ViewSettings || !m.settingsView.IsEditing())
+		if msg.String() == "tab" && canSwitchTab {
 			switch m.currentView {
 			case common.ViewBookshelf:
+				m.currentView = common.ViewExplore
+			case common.ViewExplore:
 				m.currentView = common.ViewSearch
 			case common.ViewSearch:
 				m.currentView = common.ViewSettings
@@ -150,13 +215,15 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "shift+tab" && (m.currentView == common.ViewBookshelf || m.currentView == common.ViewSearch || (m.currentView == common.ViewSettings && !m.settingsView.IsEditing())) {
+		if msg.String() == "shift+tab" && canSwitchTab {
 			switch m.currentView {
 			case common.ViewBookshelf:
 				m.currentView = common.ViewSettings
 			case common.ViewSettings:
 				m.currentView = common.ViewSearch
 			case common.ViewSearch:
+				m.currentView = common.ViewExplore
+			case common.ViewExplore:
 				m.currentView = common.ViewBookshelf
 				m.bookshelfView.Reload()
 			}
@@ -169,6 +236,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.currentView {
 	case common.ViewBookshelf:
 		m.bookshelfView, cmd = m.bookshelfView.Update(msg)
+		cmds = append(cmds, cmd)
+	case common.ViewExplore:
+		m.exploreView, cmd = m.exploreView.Update(msg)
 		cmds = append(cmds, cmd)
 	case common.ViewSearch:
 		m.searchView, cmd = m.searchView.Update(msg)
@@ -194,26 +264,36 @@ func (m *AppModel) View() string {
 
 	// 1. Top Header Bar with Tabs (strictly 2 lines: tabs + bottom border line)
 	title := theme.AppTitleStyle.Render("轻小说文库")
-	var tabBookshelf, tabSearch, tabSettings, tabExtra string
+	var tabBookshelf, tabExplore, tabSearch, tabSettings, tabExtra string
 	if m.currentView == common.ViewBookshelf {
 		tabBookshelf = theme.TabActiveStyle.Render("本地书架 (Tab)")
+		tabExplore = theme.TabInactiveStyle.Render("发现榜单 (Tab)")
+		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
+		tabSettings = theme.TabInactiveStyle.Render("系统设置 (Tab)")
+	} else if m.currentView == common.ViewExplore {
+		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
+		tabExplore = theme.TabActiveStyle.Render("发现榜单 (Tab)")
 		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
 		tabSettings = theme.TabInactiveStyle.Render("系统设置 (Tab)")
 	} else if m.currentView == common.ViewSearch {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
+		tabExplore = theme.TabInactiveStyle.Render("发现榜单 (Tab)")
 		tabSearch = theme.TabActiveStyle.Render("在线搜索 (Tab)")
 		tabSettings = theme.TabInactiveStyle.Render("系统设置 (Tab)")
 	} else if m.currentView == common.ViewSettings {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架 (Tab)")
+		tabExplore = theme.TabInactiveStyle.Render("发现榜单 (Tab)")
 		tabSearch = theme.TabInactiveStyle.Render("在线搜索 (Tab)")
 		tabSettings = theme.TabActiveStyle.Render("系统设置 (Tab)")
 	} else if m.currentView == common.ViewCatalog {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
+		tabExplore = theme.TabInactiveStyle.Render("发现榜单")
 		tabSearch = theme.TabInactiveStyle.Render("在线搜索")
 		tabSettings = theme.TabInactiveStyle.Render("系统设置")
 		tabExtra = theme.TabActiveStyle.Render("目录分卷")
 	} else {
 		tabBookshelf = theme.TabInactiveStyle.Render("本地书架")
+		tabExplore = theme.TabInactiveStyle.Render("发现榜单")
 		tabSearch = theme.TabInactiveStyle.Render("在线搜索")
 		tabSettings = theme.TabInactiveStyle.Render("系统设置")
 		tabExtra = theme.TabActiveStyle.Render("沉浸阅读")
@@ -221,17 +301,29 @@ func (m *AppModel) View() string {
 
 	var header string
 	if tabExtra != "" {
-		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch, tabSettings, tabExtra)
+		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabExplore, tabSearch, tabSettings, tabExtra)
 	} else {
-		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabSearch, tabSettings)
+		header = lipgloss.JoinHorizontal(lipgloss.Top, title, tabBookshelf, tabExplore, tabSearch, tabSettings)
 	}
 	headerRendered := theme.HeaderStyle.Width(m.width).Render(header)
+	headerLines := strings.Split(headerRendered, "\n")
+	headerHeight := len(headerLines)
 
 	// 2. Bottom Status Bar (strictly 1 line)
-	statusBarRendered := theme.StatusBarStyle.Width(m.width).Render(m.statusText)
+	var statusBarRendered string
+	if m.confirmExit {
+		statusBarRendered = lipgloss.NewStyle().
+			Background(lipgloss.Color("#DC2626")).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Width(m.width).
+			Render(" [退出确认] 是否退出轻小说阅读器？ 按 [Enter] 确认退出  •  按 [Esc] 取消")
+	} else {
+		statusBarRendered = theme.StatusBarStyle.Width(m.width).Render(m.statusText)
+	}
 
-	// Content budget: total height minus header (2) minus status (1)
-	contentHeight := m.height - 3
+	// Content budget: total height minus header minus status (1)
+	contentHeight := m.height - headerHeight - 1
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -241,6 +333,8 @@ func (m *AppModel) View() string {
 	switch m.currentView {
 	case common.ViewBookshelf:
 		body = m.bookshelfView.View()
+	case common.ViewExplore:
+		body = m.exploreView.View()
 	case common.ViewSearch:
 		body = m.searchView.View()
 	case common.ViewSettings:

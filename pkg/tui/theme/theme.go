@@ -40,12 +40,12 @@ var (
 			Bold(true).
 			Foreground(TextWhite).
 			Background(SecondaryColor).
-			Padding(0, 2)
+			Padding(0, 1)
 
 	TabInactiveStyle = lipgloss.NewStyle().
 				Foreground(TextMuted).
 				Background(BarBg).
-				Padding(0, 2)
+				Padding(0, 1)
 
 	HeaderStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), false, false, true, false).

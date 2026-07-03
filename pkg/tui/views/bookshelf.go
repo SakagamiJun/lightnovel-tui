@@ -98,6 +98,11 @@ func (v *BookshelfView) SetBooks(books []model.BookDetail) {
 	v.offset = 0
 }
 
+// IsConfirmingDelete returns whether the view is awaiting delete confirmation.
+func (v *BookshelfView) IsConfirmingDelete() bool {
+	return v.confirmDelete
+}
+
 func (v *BookshelfView) Init() tea.Cmd {
 	return func() tea.Msg {
 		v.Reload()

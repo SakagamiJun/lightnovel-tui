@@ -1,6 +1,7 @@
 package views
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -415,42 +416,30 @@ func TestReaderIllustrationModal(t *testing.T) {
 	}
 }
 
-func TestSearchExploreModeToggle(t *testing.T) {
-	sv := NewSearchView(nil, nil)
-	sv.SetSize(80, 24)
+func TestExploreViewModeToggle(t *testing.T) {
+	ev := NewExploreView(nil, nil, nil)
+	ev.SetSize(80, 24)
 
-	if sv.exploreMode != ModeKeywordSearch {
-		t.Errorf("expected initial mode ModeKeywordSearch, got %v", sv.exploreMode)
+	if ev.subTab != SubTabHot {
+		t.Errorf("expected initial subTab SubTabHot, got %v", ev.subTab)
 	}
 
-	// Blur input
-	sv.input.Blur()
-
-	// Press 't' to cycle to ModeTopHot
-	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
-	if sv.exploreMode != ModeTopHot {
-		t.Errorf("expected ModeTopHot after 't', got %v", sv.exploreMode)
+	// Press 'l' or 'right' to cycle to SubTabAnime
+	ev.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if ev.subTab != SubTabAnime {
+		t.Errorf("expected SubTabAnime after right, got %v", ev.subTab)
 	}
 
-	// Press 't' again to cycle to ModeTopAnime
-	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
-	if sv.exploreMode != ModeTopAnime {
-		t.Errorf("expected ModeTopAnime after second 't', got %v", sv.exploreMode)
+	// Press 't' to cycle to SubTabUpdate
+	ev.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if ev.subTab != SubTabUpdate {
+		t.Errorf("expected SubTabUpdate after 't', got %v", ev.subTab)
 	}
 
 	// View output should contain mode titles and badges
-	out := sv.View()
+	out := ev.View()
 	if !strings.Contains(out, "[热门榜]") || !strings.Contains(out, "[动画化]") {
 		t.Errorf("expected view to contain explore badges, got: %s", out)
-	}
-
-	// Press '/' to refocus and return to keyword search
-	sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	if sv.exploreMode != ModeKeywordSearch {
-		t.Errorf("expected ModeKeywordSearch after '/', got %v", sv.exploreMode)
-	}
-	if !sv.input.Focused() {
-		t.Errorf("expected input to be focused after '/'")
 	}
 }
 
@@ -485,5 +474,45 @@ func TestBookshelfSortingAndUpdates(t *testing.T) {
 	out := bv.View()
 	if !strings.Contains(out, "更新:+3章") {
 		t.Errorf("expected view to contain '更新:+3章', got: %s", out)
+	}
+}
+
+func TestExploreViewLineBudgetAndWindowing(t *testing.T) {
+	ev := NewExploreView(nil, nil, nil)
+	ev.SetSize(80, 21) // 21 lines content height
+
+	// Add 30 books
+	books := make([]model.BookSummary, 30)
+	for i := 0; i < 30; i++ {
+		books[i] = model.BookSummary{
+			ID:          fmt.Sprintf("b%d", i),
+			Title:       fmt.Sprintf("轻小说作品 %d", i),
+			Author:      "作者",
+			Publisher:   "电击文库",
+			WordCount:   500000,
+			Description: "小说简介内容...",
+		}
+	}
+	ev.SetResults(books)
+
+	view := ev.View()
+	lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
+	// View should produce 1 (Header) + 1 (Badges) + 1 (Detail) + 1 (Stats) + 1 (TopInd) + 5*3 (cards) + 1 (BotInd) = 21 lines
+	if len(lines) != 21 {
+		t.Fatalf("expected 21 lines for explore view, got %d", len(lines))
+	}
+
+	// Verify windowing
+	visible := ev.visibleCards()
+	if visible != 5 {
+		t.Fatalf("expected 5 visible cards, got %d", visible)
+	}
+
+	// Move cursor to 12
+	ev.cursor = 12
+	ev.adjustOffset()
+	expectedOffset := 12 - 5 + 1 // 8
+	if ev.offset != expectedOffset {
+		t.Errorf("expected offset %d, got %d", expectedOffset, ev.offset)
 	}
 }

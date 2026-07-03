@@ -39,6 +39,7 @@ type CatalogView struct {
 	onSelect   func(bookID, chapterID string) tea.Cmd
 	onDownload func(bookID string, volumeIndex int) tea.Cmd
 	onExport   func(bookID string, volumeIndex int) tea.Cmd
+	onBack     func() tea.Cmd
 }
 
 type flatChapterItem struct {
@@ -57,6 +58,11 @@ func NewCatalogView(store *storage.Storage, src source.DataSource, onSelect func
 		flatItems: make([]flatChapterItem, 0),
 		onSelect:  onSelect,
 	}
+}
+
+// SetOnBack registers back navigation callback.
+func (v *CatalogView) SetOnBack(fn func() tea.Cmd) {
+	v.onBack = fn
 }
 
 // SetOnDownload registers download callback.
@@ -245,6 +251,9 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 				return v, v.onExport(v.bookID, common.ExportModeAllVolumesSeparate)
 			}
 		case "esc":
+			if v.onBack != nil {
+				return v, v.onBack()
+			}
 			return v, func() tea.Msg {
 				return common.SwitchViewMsg{
 					Target: common.ViewBookshelf,

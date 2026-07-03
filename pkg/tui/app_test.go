@@ -174,16 +174,22 @@ func TestSettingsViewAndTabCycling(t *testing.T) {
 		t.Fatalf("expected initial view to be Bookshelf, got %v", app.currentView)
 	}
 
-	// 1. Tab to Search
+	// 1. Tab to Explore
 	app.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if app.currentView != common.ViewSearch {
-		t.Fatalf("expected view Search after Tab, got %v", app.currentView)
+	if app.currentView != common.ViewExplore {
+		t.Fatalf("expected view Explore after 1st Tab, got %v", app.currentView)
 	}
 
-	// 2. Tab to Settings
+	// 2. Tab to Search
+	app.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if app.currentView != common.ViewSearch {
+		t.Fatalf("expected view Search after 2nd Tab, got %v", app.currentView)
+	}
+
+	// 3. Tab to Settings
 	app.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if app.currentView != common.ViewSettings {
-		t.Fatalf("expected view Settings after Tab, got %v", app.currentView)
+		t.Fatalf("expected view Settings after 3rd Tab, got %v", app.currentView)
 	}
 
 	// Verify Settings line budget and content
@@ -213,16 +219,34 @@ func TestSettingsViewAndTabCycling(t *testing.T) {
 		t.Errorf("expected scrollStep to cycle from %d", initialStep)
 	}
 
-	// 3. Tab back to Bookshelf
+	// 4. Tab back to Bookshelf
 	app.Update(tea.KeyMsg{Type: tea.KeyTab})
 	if app.currentView != common.ViewBookshelf {
-		t.Fatalf("expected view Bookshelf after 3rd Tab, got %v", app.currentView)
+		t.Fatalf("expected view Bookshelf after 4th Tab, got %v", app.currentView)
 	}
 
-	// 4. Shift+Tab backwards to Settings
+	// 5. Shift+Tab backwards to Settings
 	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if app.currentView != common.ViewSettings {
 		t.Fatalf("expected view Settings after Shift+Tab, got %v", app.currentView)
+	}
+
+	// 6. Shift+Tab backwards to Search
+	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if app.currentView != common.ViewSearch {
+		t.Fatalf("expected view Search after Shift+Tab, got %v", app.currentView)
+	}
+
+	// 7. Shift+Tab backwards to Explore
+	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if app.currentView != common.ViewExplore {
+		t.Fatalf("expected view Explore after Shift+Tab, got %v", app.currentView)
+	}
+
+	// 8. Shift+Tab backwards to Bookshelf
+	app.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if app.currentView != common.ViewBookshelf {
+		t.Fatalf("expected view Bookshelf after Shift+Tab, got %v", app.currentView)
 	}
 }
 
@@ -468,5 +492,48 @@ func TestSettingsEditPathAndClearConfirmation(t *testing.T) {
 	afterClear := app.View()
 	if strings.Contains(afterClear, "[清空确认]") {
 		t.Errorf("expected confirmation banner to be dismissed after 'y'")
+	}
+}
+
+func TestEscExitConfirmation(t *testing.T) {
+	app := NewAppModel(nil, nil)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// 1. In Bookshelf, press Esc -> should trigger confirmExit
+	app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !app.confirmExit {
+		t.Fatalf("expected confirmExit to be true after pressing Esc in Bookshelf")
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "[退出确认]") || !strings.Contains(view, "是否退出轻小说阅读器") {
+		t.Errorf("expected view to render exit confirmation banner, got: %s", view)
+	}
+
+	// 2. Press Esc to cancel -> should dismiss confirmExit
+	app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if app.confirmExit {
+		t.Fatalf("expected confirmExit to be false after pressing Esc to cancel")
+	}
+
+	view = app.View()
+	if strings.Contains(view, "[退出确认]") {
+		t.Errorf("expected view to not contain exit confirmation after cancel")
+	}
+
+	// 3. Press Esc again to activate confirmExit
+	app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !app.confirmExit {
+		t.Fatalf("expected confirmExit to be true again")
+	}
+
+	// 4. Press Enter to confirm exit -> should return tea.Quit
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("expected quit cmd after Enter, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Errorf("expected tea.QuitMsg, got %T", msg)
 	}
 }

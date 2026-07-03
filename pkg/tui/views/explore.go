@@ -6,56 +6,87 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
+	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
 
-type searchResultMsg struct {
+// ExploreSubTab defines the active subcategory in ExploreView.
+type ExploreSubTab int
+
+const (
+	SubTabHot ExploreSubTab = iota
+	SubTabAnime
+	SubTabUpdate
+	SubTabPostDate
+	SubTabCompleted
+	SubTabTags
+)
+
+var defaultExploreTags = []string{
+	"校园", "青春", "恋爱", "治愈", "群像",
+	"竞技", "音乐", "美食", "旅行", "欢乐向",
+	"经营", "职场", "斗智", "脑洞", "宅文化",
+	"穿越", "奇幻", "魔法", "异能", "战斗",
+	"科幻", "机战", "战争", "冒险", "龙傲天",
+	"悬疑", "犯罪", "复仇", "黑暗", "猎奇",
+	"惊悚", "间谍", "末日", "游戏", "大逃杀",
+	"青梅竹马", "妹妹", "女儿", "JK", "JC",
+	"大小姐", "性转", "伪娘", "人外",
+	"后宫", "百合", "耽美", "NTR", "女性视角",
+}
+
+type exploreResultMsg struct {
+	subTab     ExploreSubTab
+	tag        string
 	results    []model.BookSummary
 	totalPages int
 	page       int
 	err        error
 }
 
-// SearchView handles interactive search with textinput.
-type SearchView struct {
+// ExploreView displays online leaderboards and categorized tags.
+type ExploreView struct {
 	src        source.DataSource
-	input      textinput.Model
+	store      *storage.Storage
+	subTab     ExploreSubTab
+	tags       []string
+	tagIndex   int
 	results    []model.BookSummary
 	cursor     int
 	offset     int
-	searching  bool
+	page       int
+	totalPages int
+	loading    bool
 	err        error
 	width      int
 	height     int
-	page       int
-	totalPages int
 	onSelect   func(bookID string) tea.Cmd
 	onDownload func(bookID string) tea.Cmd
 	onExport   func(bookID string, volumeIndex int) tea.Cmd
 }
 
-// NewSearchView creates an interactive search view.
-func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) *SearchView {
-	ti := textinput.New()
-	ti.Placeholder = "输入书名或作者名，按 [Enter] 开始检索..."
-	ti.Focus()
-	ti.CharLimit = 50
-	ti.Width = 46
-	ti.Prompt = " 检索轻小说: "
-	ti.PromptStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight)
-	ti.TextStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite)
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
+// NewExploreView creates a new explore and toplists view.
+func NewExploreView(src source.DataSource, store *storage.Storage, onSelect func(bookID string) tea.Cmd) *ExploreView {
+	tags := defaultExploreTags
+	if src != nil {
+		srcTags := src.GetTags()
+		if len(srcTags) > 0 {
+			tags = srcTags
+		}
+	}
 
-	return &SearchView{
+	return &ExploreView{
 		src:        src,
-		input:      ti,
+		store:      store,
+		subTab:     SubTabHot,
+		tags:       tags,
+		tagIndex:   0,
 		results:    make([]model.BookSummary, 0),
 		page:       1,
 		totalPages: 1,
@@ -64,53 +95,97 @@ func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) 
 }
 
 // SetOnDownload registers download callback.
-func (v *SearchView) SetOnDownload(fn func(bookID string) tea.Cmd) {
+func (v *ExploreView) SetOnDownload(fn func(bookID string) tea.Cmd) {
 	v.onDownload = fn
 }
 
 // SetOnExport registers export callback.
-func (v *SearchView) SetOnExport(fn func(bookID string, volumeIndex int) tea.Cmd) {
+func (v *ExploreView) SetOnExport(fn func(bookID string, volumeIndex int) tea.Cmd) {
 	v.onExport = fn
 }
 
-// Init initializes search text input.
-func (v *SearchView) Init() tea.Cmd {
-	return textinput.Blink
-}
-
-// SetSize updates layout dimensions.
-func (v *SearchView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
-}
-
-// IsInputFocused returns whether the search input currently has focus.
-func (v *SearchView) IsInputFocused() bool {
-	return v.input.Focused()
-}
-
-// SetResults populates search results directly.
-func (v *SearchView) SetResults(results []model.BookSummary) {
-	v.searching = false
+// SetResults populates explore results directly (useful for tests).
+func (v *ExploreView) SetResults(results []model.BookSummary) {
+	v.loading = false
 	v.results = results
 	v.err = nil
 	v.cursor = 0
 	v.offset = 0
 	v.page = 1
 	v.totalPages = 1
-	if len(results) > 0 {
-		v.input.Blur()
+}
+
+// Init triggers initial loading of the first leaderboard.
+func (v *ExploreView) Init() tea.Cmd {
+	return v.fetchCmd(v.subTab, 1)
+}
+
+// SetSize updates layout dimensions.
+func (v *ExploreView) SetSize(width, height int) {
+	v.width = width
+	v.height = height
+}
+
+func (v *ExploreView) fetchCmd(tab ExploreSubTab, page int) tea.Cmd {
+	if v.src == nil {
+		return nil
+	}
+	if page < 1 {
+		page = 1
+	}
+	v.loading = true
+	v.err = nil
+
+	currentTag := ""
+	if tab == SubTabTags && len(v.tags) > 0 {
+		if v.tagIndex < 0 || v.tagIndex >= len(v.tags) {
+			v.tagIndex = 0
+		}
+		currentTag = v.tags[v.tagIndex]
+	}
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		var res []model.BookSummary
+		var total int
+		var err error
+
+		switch tab {
+		case SubTabHot:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistHot, page)
+		case SubTabAnime:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistAnime, page)
+		case SubTabUpdate:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistLastUpdate, page)
+		case SubTabPostDate:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistPostDate, page)
+		case SubTabCompleted:
+			res, total, err = v.src.GetToplist(ctx, source.ToplistCompleted, page)
+		case SubTabTags:
+			res, total, err = v.src.GetTagBooks(ctx, currentTag, page)
+		}
+
+		return exploreResultMsg{
+			subTab:     tab,
+			tag:        currentTag,
+			results:    res,
+			totalPages: total,
+			page:       page,
+			err:        err,
+		}
 	}
 }
 
-func (v *SearchView) visibleCards() int {
+func (v *ExploreView) visibleCards() int {
 	// Fixed lines:
 	// Line 1: Header (1)
-	// Line 2: Tips (1)
-	// Line 3: Input (1)
-	// Line 4: Stats (1)
-	// Line 5: TopInd (1)
-	// Line N: BotInd (1)
+	// Line 2: Sub-tab badges (1)
+	// Line 3: Category description & hint (1)
+	// Line 4: Stats & Action hint (1)
+	// Line 5: Top fold indicator (1)
+	// Line N: Bottom fold indicator (1)
 	// Total fixed lines = 6 lines.
 	// Each modern card takes exactly 3 lines.
 	avail := v.height - 6
@@ -124,7 +199,7 @@ func (v *SearchView) visibleCards() int {
 	return cards
 }
 
-func (v *SearchView) adjustOffset() {
+func (v *ExploreView) adjustOffset() {
 	visible := v.visibleCards()
 	if v.cursor < v.offset {
 		v.offset = v.cursor
@@ -143,67 +218,119 @@ func (v *SearchView) adjustOffset() {
 	}
 }
 
-// Update handles input events in SearchView.
-func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
-	var cmds []tea.Cmd
-
+// Update handles user interaction in ExploreView.
+func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 	switch msg := msg.(type) {
-	case searchResultMsg:
-		v.searching = false
+	case exploreResultMsg:
+		v.loading = false
 		v.results = msg.results
 		v.totalPages = msg.totalPages
 		v.page = msg.page
 		v.err = msg.err
 		v.cursor = 0
 		v.offset = 0
-		if len(msg.results) > 0 {
-			v.input.Blur()
-		}
 		return v, nil
 
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			if len(v.results) > 0 {
-				if v.input.Focused() {
-					v.input.Blur()
-				}
-				if v.cursor > 0 {
-					v.cursor--
-					v.adjustOffset()
-				}
+			if len(v.results) > 0 && v.cursor > 0 {
+				v.cursor--
+				v.adjustOffset()
 			}
 		case tea.MouseButtonWheelDown:
-			if len(v.results) > 0 {
-				if v.input.Focused() {
-					v.input.Blur()
-				}
-				if v.cursor < len(v.results)-1 {
-					v.cursor++
-					v.adjustOffset()
-				}
+			if len(v.results) > 0 && v.cursor < len(v.results)-1 {
+				v.cursor++
+				v.adjustOffset()
 			}
 		}
 
 	case tea.KeyMsg:
 		visible := v.visibleCards()
 		switch msg.String() {
-		case "enter":
-			if v.input.Focused() && strings.TrimSpace(v.input.Value()) != "" {
-				v.searching = true
-				v.err = nil
+		case "left", "h":
+			if v.subTab > SubTabHot {
+				v.subTab--
 				v.page = 1
-				query := strings.TrimSpace(v.input.Value())
-				return v, func() tea.Msg {
-					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-					defer cancel()
-					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: 1, err: nil}
-					}
-					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, 1)
-					return searchResultMsg{results: res, totalPages: total, page: 1, err: err}
+				return v, v.fetchCmd(v.subTab, 1)
+			}
+		case "right", "l":
+			if v.subTab < SubTabTags {
+				v.subTab++
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
+			}
+		case "t":
+			if v.subTab == SubTabTags && len(v.tags) > 0 {
+				v.tagIndex = (v.tagIndex + 1) % len(v.tags)
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
+			} else {
+				// Quick cycle tabs
+				v.subTab = (v.subTab + 1) % 6
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
+			}
+		case "T":
+			if v.subTab == SubTabTags && len(v.tags) > 0 {
+				v.tagIndex = (v.tagIndex - 1 + len(v.tags)) % len(v.tags)
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
+			} else {
+				v.subTab = (v.subTab - 1 + 6) % 6
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
+			}
+		case "r", "R":
+			return v, v.fetchCmd(v.subTab, v.page)
+		case "[", "p":
+			if v.page > 1 {
+				v.page--
+				return v, v.fetchCmd(v.subTab, v.page)
+			}
+		case "]", "n":
+			if v.page < v.totalPages {
+				v.page++
+				return v, v.fetchCmd(v.subTab, v.page)
+			}
+		case "down", "j", "ctrl+j":
+			if len(v.results) > 0 && v.cursor < len(v.results)-1 {
+				v.cursor++
+				v.adjustOffset()
+			}
+		case "up", "k", "ctrl+k":
+			if len(v.results) > 0 && v.cursor > 0 {
+				v.cursor--
+				v.adjustOffset()
+			}
+		case "pgup", "ctrl+u", "b":
+			if len(v.results) > 0 {
+				v.cursor -= visible
+				if v.cursor < 0 {
+					v.cursor = 0
 				}
-			} else if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+				v.adjustOffset()
+			}
+		case "pgdown", "ctrl+d", "f":
+			if len(v.results) > 0 {
+				v.cursor += visible
+				if v.cursor >= len(v.results) {
+					v.cursor = len(v.results) - 1
+				}
+				v.adjustOffset()
+			}
+		case "g", "home":
+			if len(v.results) > 0 {
+				v.cursor = 0
+				v.offset = 0
+			}
+		case "G", "end":
+			if len(v.results) > 0 {
+				v.cursor = len(v.results) - 1
+				v.adjustOffset()
+			}
+		case "enter":
+			if len(v.results) > 0 && v.cursor < len(v.results) {
 				selectedID := v.results[v.cursor].ID
 				if v.onSelect != nil {
 					return v, v.onSelect(selectedID)
@@ -215,122 +342,36 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					}
 				}
 			}
-
-		case "[", "p":
-			if !v.input.Focused() && v.page > 1 {
-				v.page--
-				query := strings.TrimSpace(v.input.Value())
-				return v, func() tea.Msg {
-					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-					defer cancel()
-					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: v.page, err: nil}
-					}
-					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
-					return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
-				}
-			}
-		case "]", "n":
-			if !v.input.Focused() && v.page < v.totalPages {
-				v.page++
-				query := strings.TrimSpace(v.input.Value())
-				return v, func() tea.Msg {
-					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-					defer cancel()
-					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: v.page, err: nil}
-					}
-					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
-					return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
-				}
-			}
-
-		case "down", "ctrl+j":
-			if v.input.Focused() && len(v.results) > 0 {
-				v.input.Blur()
-			} else if len(v.results) > 0 && v.cursor < len(v.results)-1 {
-				v.cursor++
-				v.adjustOffset()
-			}
-		case "up", "ctrl+k":
-			if !v.input.Focused() && len(v.results) > 0 {
-				if v.cursor > 0 {
-					v.cursor--
-					v.adjustOffset()
-				} else {
-					v.input.Focus()
-				}
-			}
-		case "pgup", "ctrl+u", "b":
-			if !v.input.Focused() && len(v.results) > 0 {
-				v.cursor -= visible
-				if v.cursor < 0 {
-					v.cursor = 0
-				}
-				v.adjustOffset()
-			}
-		case "pgdown", "ctrl+d", "f":
-			if !v.input.Focused() && len(v.results) > 0 {
-				v.cursor += visible
-				if v.cursor >= len(v.results) {
-					v.cursor = len(v.results) - 1
-				}
-				v.adjustOffset()
-			}
-		case "g", "home":
-			if !v.input.Focused() && len(v.results) > 0 {
-				v.cursor = 0
-				v.offset = 0
-			}
-		case "G", "end":
-			if !v.input.Focused() && len(v.results) > 0 {
-				v.cursor = len(v.results) - 1
-				v.adjustOffset()
-			}
 		case "d", "c":
-			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+			if len(v.results) > 0 && v.cursor < len(v.results) {
 				if v.onDownload != nil {
 					return v, v.onDownload(v.results[v.cursor].ID)
 				}
 			}
 		case "e":
-			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+			if len(v.results) > 0 && v.cursor < len(v.results) {
 				if v.onExport != nil {
 					return v, v.onExport(v.results[v.cursor].ID, common.ExportModeFullBook)
 				}
 			}
 		case "s":
-			if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
+			if len(v.results) > 0 && v.cursor < len(v.results) {
 				if v.onExport != nil {
 					return v, v.onExport(v.results[v.cursor].ID, common.ExportModeAllVolumesSeparate)
 				}
 			}
-		case "/":
-			if !v.input.Focused() {
-				v.input.Focus()
-				return v, nil
-			}
-		case "esc":
-			if v.input.Focused() && len(v.results) > 0 {
-				v.input.Blur()
-				return v, nil
-			}
 		}
 	}
 
-	var inputCmd tea.Cmd
-	v.input, inputCmd = v.input.Update(msg)
-	cmds = append(cmds, inputCmd)
-
-	return v, tea.Batch(cmds...)
+	return v, nil
 }
 
-// View renders SearchView.
-func (v *SearchView) View() string {
+// View renders the ExploreView.
+func (v *ExploreView) View() string {
 	var sb strings.Builder
 
 	header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-		Render("在线轻小说检索 (Wenku8)")
+		Render("在线轻小说发现与排行榜 (Wenku8)")
 	sb.WriteString(header + "\n")
 
 	maxWidth := v.width - 2
@@ -338,48 +379,90 @@ func (v *SearchView) View() string {
 		maxWidth = 30
 	}
 
-	// Line 2: Tips
-	tips := lipgloss.NewStyle().Foreground(theme.AccentSky).
-		Render(" 检索提示: 输入书名或作者名检索轻小说 (按 [Enter] 开始检索，按 [↓] 浏览结果)")
-	sb.WriteString(runewidth.Truncate(tips, maxWidth, "...") + "\n")
+	// Line 2: Sub-tabs
+	subTabs := []struct {
+		tab   ExploreSubTab
+		label string
+	}{
+		{SubTabHot, "热门榜"},
+		{SubTabAnime, "动画化"},
+		{SubTabUpdate, "今日更新"},
+		{SubTabPostDate, "新书榜"},
+		{SubTabCompleted, "完结全本"},
+		{SubTabTags, "题材分类"},
+	}
 
-	// Line 3: Input bar
-	inputBar := lipgloss.NewStyle().
-		Background(theme.BarBg).
-		Width(maxWidth).
-		Render(v.input.View())
-	sb.WriteString(inputBar + "\n")
+	var badges []string
+	for _, item := range subTabs {
+		if item.tab == v.subTab {
+			badges = append(badges, lipgloss.NewStyle().
+				Bold(true).
+				Foreground(theme.TextWhite).
+				Background(theme.PrimaryColor).
+				Padding(0, 1).
+				Render(fmt.Sprintf("[%s]", item.label)))
+		} else {
+			badges = append(badges, lipgloss.NewStyle().
+				Foreground(theme.TextMuted).
+				Render(fmt.Sprintf("[%s]", item.label)))
+		}
+	}
+	topBar := " 榜单类型: " + strings.Join(badges, " ") + lipgloss.NewStyle().Foreground(theme.TextDim).Render("  (按 [←/→] 或 [h/l] 切换)")
+	sb.WriteString(runewidth.Truncate(topBar, maxWidth, "...") + "\n")
 
-	if v.searching {
+	// Line 3: Description & category details
+	var detailText string
+	switch v.subTab {
+	case SubTabHot:
+		detailText = "当前榜单: 热门轻小说 (按总访问量排行)  •  按 [r] 刷新"
+	case SubTabAnime:
+		detailText = "当前榜单: 已动画化轻小说作品  •  按 [r] 刷新"
+	case SubTabUpdate:
+		detailText = "当前榜单: 今日最新更新小说章节  •  按 [r] 刷新"
+	case SubTabPostDate:
+		detailText = "当前榜单: 新书入库一览  •  按 [r] 刷新"
+	case SubTabCompleted:
+		detailText = "当前榜单: 完结全本精选轻小说  •  按 [r] 刷新"
+	case SubTabTags:
+		currentTag := "校园"
+		if len(v.tags) > 0 && v.tagIndex < len(v.tags) {
+			currentTag = v.tags[v.tagIndex]
+		}
+		detailText = fmt.Sprintf("当前题材: [%s] (第 %d/%d 个)  •  按 [t/T] 轮换分类题材  •  按 [r] 刷新",
+			currentTag, v.tagIndex+1, len(v.tags))
+	}
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
+		Render(runewidth.Truncate(" "+detailText, maxWidth, "...")) + "\n")
+
+	// Loading state
+	if v.loading {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
-			Render(" [检索中] 正在联网检索轻小说，请稍候...") + "\n")
+			Render(" [加载中] 正在联网获取榜单数据，请稍候...") + "\n")
 		return sb.String()
 	}
 
+	// Error state
 	if v.err != nil {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentRose).
-			Render(fmt.Sprintf(" [错误] 检索出错: %v", v.err)) + "\n")
+			Render(fmt.Sprintf(" [错误] 获取榜单出错: %v", v.err)) + "\n")
 		return sb.String()
 	}
 
+	// Empty state
 	if len(v.results) == 0 {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextDim).
-			Render(" [提示] 请在上方输入关键词检索轻小说，按 [Enter] 开始检索。") + "\n")
+			Render(" [提示] 暂无数据，请尝试按 [r] 重新获取，或按 [←/→] 切换其他榜单。") + "\n")
 		return sb.String()
 	}
 
 	// Line 4: Stats & action hint
 	curPos := v.cursor + 1
-	focusHint := "[d] 下载全本  •  [/] 输入框"
-	if v.input.Focused() {
-		focusHint = "[Enter] 检索  •  [↓] 结果列表"
-	}
 	pageStr := ""
 	if v.totalPages > 1 {
 		pageStr = fmt.Sprintf("第 %d/%d 页 ([/])  •  ", v.page, v.totalPages)
 	}
-	statsText := fmt.Sprintf(" %s共 %d 本  •  当前 [%d/%d]  •  [Enter] 目录  •  %s",
-		pageStr, len(v.results), curPos, len(v.results), focusHint)
+	statsText := fmt.Sprintf(" %s共 %d 本  •  当前 [%d/%d]  •  [Enter] 目录  •  [d] 下载  •  [e] 导出",
+		pageStr, len(v.results), curPos, len(v.results))
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
 		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
 
@@ -411,9 +494,10 @@ func (v *SearchView) View() string {
 		barInactive     = "│   "
 	)
 
+	// Render Cards
 	for i := start; i < end; i++ {
 		b := v.results[i]
-		isSelected := i == v.cursor && !v.input.Focused()
+		isSelected := i == v.cursor
 
 		var line1Badges string
 		if b.IsComplete {
@@ -438,7 +522,7 @@ func (v *SearchView) View() string {
 		}
 
 		if isSelected {
-			// Line 1: Full Book Title + Minimal Badges
+			// Line 1: Title + Badges
 			prefix := barActive
 			prefixWidth := lipgloss.Width(prefix)
 			badgesWidth := lipgloss.Width(line1Badges)
@@ -465,7 +549,7 @@ func (v *SearchView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
+			// Line 2: Meta Info
 			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
 				barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
@@ -480,7 +564,7 @@ func (v *SearchView) View() string {
 			sb.WriteString(line2 + "\n")
 			sb.WriteString(line3 + "\n")
 		} else {
-			// Line 1: Full Book Title + Minimal Badges
+			// Line 1: Title + Badges
 			prefix := barInactive
 			prefixWidth := lipgloss.Width(prefix)
 			badgesWidth := lipgloss.Width(line1Badges)
@@ -507,7 +591,7 @@ func (v *SearchView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
+			// Line 2: Meta Info
 			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
 				barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
@@ -535,7 +619,7 @@ func (v *SearchView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentAmber).
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
-		msg := fmt.Sprintf("  [全部] 已显示全部 %d 部搜索结果 ", len(v.results))
+		msg := fmt.Sprintf("  [全部] 已显示全部 %d 部作品 ", len(v.results))
 		ruleLen := maxWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
