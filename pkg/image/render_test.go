@@ -131,3 +131,46 @@ func TestRenderFile(t *testing.T) {
 		t.Errorf("RenderFile Kitty missing protocol header")
 	}
 }
+
+func TestDetectTerminalProtocol(t *testing.T) {
+	origTerm := os.Getenv("TERM")
+	origTermProg := os.Getenv("TERM_PROGRAM")
+	origKitty := os.Getenv("KITTY_WINDOW_ID")
+	origLC := os.Getenv("LC_TERMINAL")
+	defer func() {
+		os.Setenv("TERM", origTerm)
+		os.Setenv("TERM_PROGRAM", origTermProg)
+		os.Setenv("KITTY_WINDOW_ID", origKitty)
+		os.Setenv("LC_TERMINAL", origLC)
+	}()
+
+	// 1. Ghostty via TERM
+	os.Setenv("KITTY_WINDOW_ID", "")
+	os.Setenv("TERM", "xterm-ghostty")
+	os.Setenv("TERM_PROGRAM", "")
+	if p := DetectTerminalProtocol(); p != ProtocolKitty {
+		t.Errorf("expected ProtocolKitty for xterm-ghostty, got %v", p)
+	}
+
+	// 2. Ghostty via TERM_PROGRAM
+	os.Setenv("TERM", "xterm-256color")
+	os.Setenv("TERM_PROGRAM", "ghostty")
+	if p := DetectTerminalProtocol(); p != ProtocolKitty {
+		t.Errorf("expected ProtocolKitty for ghostty, got %v", p)
+	}
+
+	// 3. WezTerm
+	os.Setenv("TERM", "xterm-256color")
+	os.Setenv("TERM_PROGRAM", "WezTerm")
+	if p := DetectTerminalProtocol(); p != ProtocolITerm2 {
+		t.Errorf("expected ProtocolITerm2 for WezTerm, got %v", p)
+	}
+
+	// 4. Fallback to HalfBlock
+	os.Setenv("TERM", "dumb")
+	os.Setenv("TERM_PROGRAM", "")
+	os.Setenv("LC_TERMINAL", "")
+	if p := DetectTerminalProtocol(); p != ProtocolHalfBlock {
+		t.Errorf("expected ProtocolHalfBlock for dumb, got %v", p)
+	}
+}

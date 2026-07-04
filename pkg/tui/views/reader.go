@@ -156,9 +156,12 @@ func (v *ReaderView) loadImageCmd(index int) tea.Cmd {
 		if renderW < 20 {
 			renderW = 20
 		}
-		renderH := v.height - 10
-		if renderH < 10 {
-			renderH = 10
+		// Unclamp vertical height: viewport allows vertical scrolling with j/k/arrows,
+		// so allocating up to 120 character rows (240 vertical half-block pixels) produces
+		// 8x higher resolution than squishing down to 14 terminal lines.
+		renderH := 120
+		if v.height*2 > renderH {
+			renderH = v.height * 2
 		}
 
 		// Render with auto terminal protocol (iTerm2, Kitty, or 24-bit TrueColor half-block)
@@ -234,7 +237,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		// Modal interaction when viewing illustration
 		if v.showImageModal {
 			switch msg.String() {
-			case "esc", "q", "i", "I":
+			case "esc", "i", "I":
 				v.showImageModal = false
 				return v, nil
 			case "left", "h", "[", "p":
@@ -253,7 +256,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 					return v, v.loadImageCmd(v.imageIndex)
 				}
 				return v, nil
-			case "o", "O":
+			case "enter", " ", "space", "o", "O":
 				if v.imagePath != "" {
 					_ = termimage.OpenInSystemViewer(v.imagePath)
 				}
@@ -458,7 +461,7 @@ func (v *ReaderView) renderImageModal() string {
 	header := fmt.Sprintf(" %s %s  %s",
 		titleStyle.Render("[插图查看器]"),
 		counterStyle.Render(fmt.Sprintf("[%d/%d]", v.imageIndex+1, totalImages)),
-		hintStyle.Render("• [←/→] 翻页 • [j/k] 滚屏 • [o] 外部查看 • [Esc/i] 退出"),
+		hintStyle.Render("• [Enter/o] 高清预览(QuickLook) • [←/→] 翻页 • [j/k] 滚动 • [Esc/i] 关闭"),
 	)
 
 	var body string

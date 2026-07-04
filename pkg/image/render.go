@@ -47,17 +47,25 @@ func (p Protocol) String() string {
 
 // DetectTerminalProtocol auto-detects the best supported protocol for the current environment.
 func DetectTerminalProtocol() Protocol {
-	if os.Getenv("KITTY_WINDOW_ID") != "" {
+	term := os.Getenv("TERM")
+	termProg := strings.ToLower(os.Getenv("TERM_PROGRAM"))
+
+	// Kitty protocol: Kitty or Ghostty
+	if os.Getenv("KITTY_WINDOW_ID") != "" || term == "xterm-kitty" || term == "xterm-ghostty" || strings.Contains(termProg, "ghostty") {
 		return ProtocolKitty
 	}
-	termProg := os.Getenv("TERM_PROGRAM")
-	if termProg == "iTerm.app" || termProg == "WezTerm" || os.Getenv("LC_TERMINAL") == "iTerm2" {
+
+	// iTerm2 inline protocol: iTerm2, WezTerm
+	if strings.Contains(termProg, "iterm") || strings.Contains(termProg, "wezterm") || os.Getenv("LC_TERMINAL") == "iTerm2" {
 		return ProtocolITerm2
 	}
+
 	return ProtocolHalfBlock
 }
 
 // OpenInSystemViewer opens the specified image file in the default system viewer asynchronously.
+// On macOS, it invokes macOS native Quick Look (qlmanage -p) to display an instant, retina-crisp floating window
+// without switching focus away or opening Preview.app. Falls back to standard 'open' if needed.
 func OpenInSystemViewer(filePath string) error {
 	if filePath == "" {
 		return fmt.Errorf("empty file path")
@@ -66,16 +74,33 @@ func OpenInSystemViewer(filePath string) error {
 		return err
 	}
 
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", filePath)
+		// Try qlmanage -p for instant native Quick Look preview
+		devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err == nil {
+			cmd := exec.Command("qlmanage", "-p", filePath)
+			cmd.Stdout = devNull
+			cmd.Stderr = devNull
+			if err := cmd.Start(); err == nil {
+				go func() {
+					_ = cmd.Wait()
+					_ = devNull.Close()
+				}()
+				return nil
+			}
+			_ = devNull.Close()
+		}
+		// Fallback to open
+		cmd := exec.Command("open", filePath)
+		return cmd.Start()
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", filePath)
+		cmd := exec.Command("cmd", "/c", "start", "", filePath)
+		return cmd.Start()
 	default:
-		cmd = exec.Command("xdg-open", filePath)
+		cmd := exec.Command("xdg-open", filePath)
+		return cmd.Start()
 	}
-	return cmd.Start()
 }
 
 // DownloadImageToFile downloads an image from imgURL to destPath streaming with anti-hotlinking referer.
