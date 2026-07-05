@@ -536,4 +536,52 @@ func TestEscExitConfirmation(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Errorf("expected tea.QuitMsg, got %T", msg)
 	}
+
+	// 5. Test Esc in Explore view
+	app2 := NewAppModel(nil, nil)
+	app2.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app2.Update(common.SwitchViewMsg{Target: common.ViewExplore})
+	app2.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !app2.confirmExit {
+		t.Errorf("expected confirmExit in Explore view after Esc")
+	}
+
+	// 6. Test Esc in Settings view while editing vs not editing
+	app3 := NewAppModel(nil, nil)
+	app3.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app3.Update(common.SwitchViewMsg{Target: common.ViewSettings})
+	// Trigger edit on item 0
+	app3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !app3.settingsView.IsEditing() {
+		t.Fatalf("expected settingsView to be editing")
+	}
+	// Press Esc while editing -> should cancel edit, NOT confirm exit
+	app3.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if app3.confirmExit {
+		t.Errorf("expected confirmExit to be false while cancelling settings edit")
+	}
+	if app3.settingsView.IsEditing() {
+		t.Errorf("expected settingsView to stop editing after Esc")
+	}
+	// Press Esc again -> now triggers confirmExit
+	app3.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if !app3.confirmExit {
+		t.Errorf("expected confirmExit in Settings after Esc")
+	}
+
+	// 7. Test Catalog Esc returns to originating view
+	app4 := NewAppModel(nil, nil)
+	app4.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	// Simulate opening catalog from Explore
+	app4.currentView = common.ViewExplore
+	app4.exploreView.SetResults([]model.BookSummary{{ID: "b123", Title: "测试小说"}})
+	app4.Update(tea.KeyMsg{Type: tea.KeyEnter}) // triggers onSelect -> opens catalog
+	if app4.currentView != common.ViewCatalog {
+		t.Fatalf("expected view to be Catalog, got %v", app4.currentView)
+	}
+	// Press Esc in Catalog -> should return to Explore
+	app4.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if app4.currentView != common.ViewExplore {
+		t.Errorf("expected view to return to Explore, got %v", app4.currentView)
+	}
 }
