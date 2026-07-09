@@ -305,6 +305,34 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			}
 			return v, nil
 
+		case "[", "p":
+			if v.reader != nil {
+				if prevID, _, ok := v.reader.PrevChapter(); ok {
+					_ = v.reader.SaveProgress(&reader.ReadingProgress{
+						BookID:     v.bookID,
+						ChapterID:  v.chapterID,
+						LineIndex:  v.viewport.YOffset,
+						LastReadAt: time.Now().Unix(),
+					})
+					return v, v.OpenChapter(v.bookID, prevID)
+				}
+			}
+			return v, nil
+
+		case "]", "n":
+			if v.reader != nil {
+				if nextID, _, ok := v.reader.NextChapter(); ok {
+					_ = v.reader.SaveProgress(&reader.ReadingProgress{
+						BookID:     v.bookID,
+						ChapterID:  v.chapterID,
+						LineIndex:  v.viewport.YOffset,
+						LastReadAt: time.Now().Unix(),
+					})
+					return v, v.OpenChapter(v.bookID, nextID)
+				}
+			}
+			return v, nil
+
 		case "esc":
 			// Save progress on exit
 			if v.reader != nil {
@@ -420,7 +448,7 @@ func (v *ReaderView) View() string {
 
 	statusRight := lipgloss.NewStyle().
 		Foreground(curTheme.Muted).
-		Render(fmt.Sprintf("配色:%s[c]  •  %s ", curTheme.Name, nowTime))
+		Render(fmt.Sprintf("[[/]]换章  •  配色:%s[c]  •  %s ", curTheme.Name, nowTime))
 
 	statusMidContent := statusLeft + "  •  " + statusMid
 	bottomBar := statusMidContent + "  " + statusRight

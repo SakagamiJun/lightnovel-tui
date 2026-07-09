@@ -23,21 +23,23 @@ type updateCheckResultMsg struct {
 
 // BookshelfView displays locally cached novels with cursor navigation.
 type BookshelfView struct {
-	store           *storage.Storage
-	src             source.DataSource
-	books           []model.BookDetail
-	pinnedSet       map[string]bool
-	cursor          int
-	offset          int
-	width           int
-	height          int
-	loaded          bool
-	confirmDelete   bool
-	sortCriteria    storage.SortCriteria
-	checkingUpdates bool
-	updatesMap      map[string]int
-	onSelect        func(bookID string) tea.Cmd
-	onExport        func(bookID string, volumeIndex int) tea.Cmd
+	store             *storage.Storage
+	src               source.DataSource
+	books             []model.BookDetail
+	pinnedSet         map[string]bool
+	cursor            int
+	offset            int
+	width             int
+	height            int
+	loaded            bool
+	confirmDelete     bool
+	sortCriteria      storage.SortCriteria
+	checkingUpdates   bool
+	updatesMap        map[string]int
+	showStatsModal    bool
+	onSelect          func(bookID string) tea.Cmd
+	onContinueReading func(bookID, chapterID string) tea.Cmd
+	onExport          func(bookID string, volumeIndex int) tea.Cmd
 }
 
 // NewBookshelfView constructs bookshelf model.
@@ -55,6 +57,11 @@ func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.C
 // SetSource provides data source for checking online chapter updates.
 func (v *BookshelfView) SetSource(src source.DataSource) {
 	v.src = src
+}
+
+// SetOnContinueReading registers callback to jump straight into reading.
+func (v *BookshelfView) SetOnContinueReading(fn func(bookID, chapterID string) tea.Cmd) {
+	v.onContinueReading = fn
 }
 
 // SetOnExport registers export callback.
@@ -101,6 +108,39 @@ func (v *BookshelfView) SetBooks(books []model.BookDetail) {
 // IsConfirmingDelete returns whether the view is awaiting delete confirmation.
 func (v *BookshelfView) IsConfirmingDelete() bool {
 	return v.confirmDelete
+}
+
+// IsShowingStats returns whether the reading statistics modal is currently active.
+func (v *BookshelfView) IsShowingStats() bool {
+	return v.showStatsModal
+}
+
+// CloseStats dismisses the reading statistics modal.
+func (v *BookshelfView) CloseStats() {
+	v.showStatsModal = false
+}
+
+func (v *BookshelfView) resumeRecentBook() tea.Cmd {
+	if v.store == nil {
+		return func() tea.Msg { return common.StatusMsg("存储未就绪") }
+	}
+	recent := v.store.GetRecentBook()
+	if recent == nil || recent.BookID == "" {
+		return func() tea.Msg { return common.StatusMsg("暂无最近阅读记录，请先选择一本书籍阅读") }
+	}
+	v.showStatsModal = false
+	if v.onContinueReading != nil {
+		return v.onContinueReading(recent.BookID, recent.LastReadChapID)
+	}
+	if v.onSelect != nil {
+		return v.onSelect(recent.BookID)
+	}
+	return func() tea.Msg {
+		return common.SwitchViewMsg{
+			Target: common.ViewCatalog,
+			BookID: recent.BookID,
+		}
+	}
 }
 
 func (v *BookshelfView) Init() tea.Cmd {
@@ -199,6 +239,18 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if v.showStatsModal {
+			switch msg.String() {
+			case "esc", "s", "S":
+				v.showStatsModal = false
+				return v, nil
+			case "enter", "c", "C":
+				return v, v.resumeRecentBook()
+			default:
+				return v, nil
+			}
+		}
+
 		if v.confirmDelete {
 			switch msg.String() {
 			case "y", "Y":
@@ -321,10 +373,15 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 			if len(v.books) > 0 && v.cursor < len(v.books) && v.onExport != nil {
 				return v, v.onExport(v.books[v.cursor].ID, common.ExportModeFullBook)
 			}
-		case "s":
+		case "E":
 			if len(v.books) > 0 && v.cursor < len(v.books) && v.onExport != nil {
 				return v, v.onExport(v.books[v.cursor].ID, common.ExportModeAllVolumesSeparate)
 			}
+		case "s", "S":
+			v.showStatsModal = true
+			return v, nil
+		case "c", "C":
+			return v, v.resumeRecentBook()
 		case "enter":
 			if len(v.books) > 0 && v.cursor < len(v.books) {
 				selectedID := v.resultsID(v.cursor)
@@ -359,6 +416,10 @@ func (v *BookshelfView) View() string {
 		v.Reload()
 	}
 
+	if v.showStatsModal {
+		return RenderStatsModal(v.store, v.width, v.height)
+	}
+
 	maxWidth := v.width - 2
 	if maxWidth < 30 {
 		maxWidth = 30
@@ -370,7 +431,7 @@ func (v *BookshelfView) View() string {
 			BorderForeground(theme.BorderColor).
 			Padding(2, 4).
 			Align(lipgloss.Center).
-			Render("本地书架暂无藏书\n\n尚未缓存任何轻小说\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
+			Render("本地书架暂无藏书\n\n尚未缓存任何轻小说\n按 [s] 查看阅读统计与打卡热力图\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
 		return emptyBox
 	}
 
@@ -387,7 +448,7 @@ func (v *BookshelfView) View() string {
 		if v.checkingUpdates {
 			updateStatus = " • [检查中...]"
 		}
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [排序: %s(o)] • [u] 检查更新 • [p] 置顶 • [x] 删除%s",
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [s] 统计 • [c] 续读 • [排序: %s(o)] • [u] 检查更新 • [p] 置顶 • [x] 删除%s",
 			curPos, len(v.books), sortName, updateStatus)
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 			Render(runewidth.Truncate(titleText, maxWidth, "..."))

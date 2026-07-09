@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
@@ -31,6 +32,7 @@ type Reader struct {
 	lines         []string
 	illustrations []string
 	traditional   bool
+	sessionStart  time.Time
 }
 
 // NewReader initializes a Reader engine for a cached book.
@@ -45,6 +47,7 @@ func NewReader(store *storage.Storage, bookID string) (*Reader, error) {
 		bookID:        bookID,
 		catalog:       catalog,
 		illustrations: make([]string, 0),
+		sessionStart:  time.Now(),
 	}, nil
 }
 
@@ -56,6 +59,7 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 	}
 
 	r.currChapter = ch
+	r.sessionStart = time.Now()
 	r.lines, r.illustrations = text.FormatNovelLines(ch.Elements, r.traditional)
 	return ch, nil
 }
@@ -71,10 +75,9 @@ func (r *Reader) SetTraditional(traditional bool) {
 	}
 }
 
-// ToggleTraditional flips the Traditional Chinese mode.
-func (r *Reader) ToggleTraditional() bool {
+// ToggleTraditional toggles between Simplified and Traditional Chinese.
+func (r *Reader) ToggleTraditional() {
 	r.SetTraditional(!r.traditional)
-	return r.traditional
 }
 
 // IsTraditional returns whether Traditional Chinese conversion is active.
@@ -82,17 +85,17 @@ func (r *Reader) IsTraditional() bool {
 	return r.traditional
 }
 
-// Lines returns the formatted readable lines of the current loaded chapter.
+// Lines returns the split text lines for the current chapter.
 func (r *Reader) Lines() []string {
 	return r.lines
 }
 
-// Illustrations returns all illustration URLs in the current chapter.
+// Illustrations returns the list of illustration image URLs in the current chapter.
 func (r *Reader) Illustrations() []string {
 	return r.illustrations
 }
 
-// IllustrationPath returns the local storage path for an illustration URL.
+// IllustrationPath returns the local cached path for a given illustration image URL.
 func (r *Reader) IllustrationPath(imgURL string) string {
 	return r.store.IllustrationPath(r.bookID, imgURL)
 }
@@ -112,7 +115,7 @@ func (r *Reader) Catalog() *model.BookCatalog {
 	return r.catalog
 }
 
-// SaveProgress records the reading bookmark to disk.
+// SaveProgress records the reading bookmark to disk and updates reading statistics.
 func (r *Reader) SaveProgress(progress *ReadingProgress) error {
 	dir := r.store.BookDir(r.bookID)
 	f, err := os.Create(filepath.Join(dir, "progress.json"))
@@ -120,7 +123,31 @@ func (r *Reader) SaveProgress(progress *ReadingProgress) error {
 		return err
 	}
 	defer f.Close()
-	return json.NewEncoder(f).Encode(progress)
+	if err := json.NewEncoder(f).Encode(progress); err != nil {
+		return err
+	}
+
+	// Update stats if storage is available
+	if r.store != nil {
+		elapsedSeconds := int(time.Since(r.sessionStart).Seconds())
+		r.sessionStart = time.Now()
+
+		bookTitle := ""
+		if detail, err := r.store.LoadBookDetail(r.bookID); err == nil && detail != nil {
+			bookTitle = detail.Title
+		}
+		chapTitle := ""
+		if r.currChapter != nil {
+			chapTitle = r.currChapter.Title
+		}
+		words := progress.LineIndex * 35
+		if words < 0 {
+			words = 0
+		}
+		_ = r.store.RecordReading(r.bookID, bookTitle, progress.ChapterID, chapTitle, elapsedSeconds, words, progress.LineIndex, len(r.lines))
+	}
+
+	return nil
 }
 
 // LoadProgress loads the saved bookmark.

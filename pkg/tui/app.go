@@ -51,6 +51,15 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		return m.catalogView.LoadBook(bookID)
 	})
 	m.bookshelfView.SetSource(src)
+	m.bookshelfView.SetOnContinueReading(func(bookID, chapterID string) tea.Cmd {
+		m.prevMainView = common.ViewBookshelf
+		if chapterID != "" {
+			m.currentView = common.ViewReader
+			return m.readerView.OpenChapter(bookID, chapterID)
+		}
+		m.currentView = common.ViewCatalog
+		return m.catalogView.LoadBook(bookID)
+	})
 	m.bookshelfView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
 		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
@@ -189,8 +198,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "esc" && isMainTab {
 			if m.currentView == common.ViewSettings && (m.settingsView.IsEditing() || m.settingsView.IsConfirmingClear()) {
 				// Let settings view handle esc first (cancelling edit or clear dialog)
-			} else if m.currentView == common.ViewBookshelf && m.bookshelfView.IsConfirmingDelete() {
-				// Let bookshelf view handle esc first (cancelling delete confirmation)
+			} else if m.currentView == common.ViewBookshelf && (m.bookshelfView.IsConfirmingDelete() || m.bookshelfView.IsShowingStats()) {
+				// Let bookshelf view handle esc first (cancelling delete confirmation or closing stats modal)
 			} else if m.currentView == common.ViewSearch && m.searchView.IsInputFocused() {
 				// Let search view handle esc first (blurring search input)
 			} else {

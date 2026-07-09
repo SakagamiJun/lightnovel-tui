@@ -273,7 +273,7 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 	if bExportID != "book_shelf_1" || bExportVol != common.ExportModeFullBook {
 		t.Errorf("expected bookshelf full export callback, got %q vol=%d", bExportID, bExportVol)
 	}
-	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
 	if bExportID != "book_shelf_1" || bExportVol != common.ExportModeAllVolumesSeparate {
 		t.Errorf("expected bookshelf split export callback, got %q vol=%d", bExportID, bExportVol)
 	}
@@ -514,5 +514,147 @@ func TestExploreViewLineBudgetAndWindowing(t *testing.T) {
 	expectedOffset := 12 - 5 + 1 // 8
 	if ev.offset != expectedOffset {
 		t.Errorf("expected offset %d, got %d", expectedOffset, ev.offset)
+	}
+}
+
+func TestBookshelfStatsModalAndResume(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-stats-view-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.RecordReading("book_1", "魔王学院的不适任者", "chap_2", "第二章", 300, 2500, 15, 100)
+
+	var continuedBookID, continuedChapID string
+	bv := NewBookshelfView(store, nil)
+	bv.SetOnContinueReading(func(bookID, chapterID string) tea.Cmd {
+		continuedBookID = bookID
+		continuedChapID = chapterID
+		return nil
+	})
+	bv.SetSize(80, 24)
+
+	// Initially stats modal is closed
+	if bv.IsShowingStats() {
+		t.Fatal("expected stats modal to be initially closed")
+	}
+
+	// Press 's' to open stats modal
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if !bv.IsShowingStats() {
+		t.Fatal("expected stats modal to be open after pressing 's'")
+	}
+
+	// Render view when modal is open
+	viewStr := bv.View()
+	if !strings.Contains(viewStr, "个人阅读统计与打卡热力图") {
+		t.Errorf("expected view to contain header, got: %s", viewStr)
+	}
+	if !strings.Contains(viewStr, "最近 12 周打卡记录:") {
+		t.Errorf("expected view to contain heatmap title, got: %s", viewStr)
+	}
+	if !strings.Contains(viewStr, "魔王学院的不适任者") {
+		t.Errorf("expected view to contain recent book title, got: %s", viewStr)
+	}
+
+	// Press Enter inside stats modal to resume reading
+	bv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if bv.IsShowingStats() {
+		t.Fatal("expected stats modal to be closed after Enter")
+	}
+	if continuedBookID != "book_1" || continuedChapID != "chap_2" {
+		t.Errorf("expected resume to open book_1/chap_2, got %q/%q", continuedBookID, continuedChapID)
+	}
+
+	// Reopen with 's' and close with 'esc'
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if !bv.IsShowingStats() {
+		t.Fatal("expected stats modal to be open")
+	}
+	bv.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if bv.IsShowingStats() {
+		t.Fatal("expected stats modal to be closed after esc")
+	}
+
+	// Press 'c' directly on bookshelf to resume reading
+	continuedBookID, continuedChapID = "", ""
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if continuedBookID != "book_1" || continuedChapID != "chap_2" {
+		t.Errorf("expected direct resume with 'c' to open book_1/chap_2, got %q/%q", continuedBookID, continuedChapID)
+	}
+}
+
+func TestReaderChapterNavigation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-reader-nav-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cat := &model.BookCatalog{
+		BookID: "book_test",
+		Volumes: []model.Volume{
+			{
+				Title: "第一卷",
+				Chapters: []model.Chapter{
+					{ID: "ch_1", Title: "第一章"},
+					{ID: "ch_2", Title: "第二章"},
+					{ID: "ch_3", Title: "第三章"},
+				},
+			},
+		},
+	}
+	_ = store.SaveCatalog(cat)
+	_ = store.SaveChapter(&model.ChapterContent{
+		BookID:   "book_test",
+		ID:       "ch_2",
+		Title:    "第二章",
+		Elements: []model.ContentElement{{Type: model.ContentTypeText, Text: "内容2"}},
+	})
+	_ = store.SaveChapter(&model.ChapterContent{
+		BookID:   "book_test",
+		ID:       "ch_1",
+		Title:    "第一章",
+		Elements: []model.ContentElement{{Type: model.ContentTypeText, Text: "内容1"}},
+	})
+	_ = store.SaveChapter(&model.ChapterContent{
+		BookID:   "book_test",
+		ID:       "ch_3",
+		Title:    "第三章",
+		Elements: []model.ContentElement{{Type: model.ContentTypeText, Text: "内容3"}},
+	})
+
+	rv := NewReaderView(store, nil)
+	rv.SetSize(80, 24)
+	cmd := rv.OpenChapter("book_test", "ch_2")
+	if cmd != nil {
+		msg := cmd()
+		rv.Update(msg)
+	}
+
+	if rv.chapterID != "ch_2" {
+		t.Fatalf("expected chapter ch_2, got %s", rv.chapterID)
+	}
+
+	// Press '[' to go to prev chapter
+	_, nextCmd := rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	if nextCmd == nil {
+		t.Fatal("expected command to load prev chapter")
+	}
+
+	// Press ']' to go to next chapter
+	_, nextCmd2 := rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	if nextCmd2 == nil {
+		t.Fatal("expected command to load next chapter")
 	}
 }
