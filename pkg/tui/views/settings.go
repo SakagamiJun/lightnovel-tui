@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/text"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
@@ -43,6 +44,9 @@ type SettingsView struct {
 	editingPath        bool
 	editingItem        int // 0 for cacheDir, 1 for exportDir
 	pathInput          textinput.Model
+	showingRules       bool
+	rulesCursor        int
+	rules              []text.FormattingRule
 }
 
 func (v *SettingsView) configFilePath() string {
@@ -73,6 +77,13 @@ func NewSettingsView(store *storage.Storage) *SettingsView {
 	ti.Prompt = " "
 	ti.TextStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite)
 
+	var initialRules []text.FormattingRule
+	if store != nil {
+		initialRules, _ = store.LoadRules()
+	} else {
+		initialRules = text.DefaultRules
+	}
+
 	v := &SettingsView{
 		store:        store,
 		cursor:       0,
@@ -81,6 +92,7 @@ func NewSettingsView(store *storage.Storage) *SettingsView {
 		exportDir:    defaultExportDir,
 		cacheDir:     defaultCacheDir,
 		pathInput:    ti,
+		rules:        initialRules,
 	}
 
 	// Load existing persisted configuration if present
@@ -193,6 +205,16 @@ func (v *SettingsView) PathInputValue() string {
 	return v.pathInput.Value()
 }
 
+// IsShowingRules returns true if currently in rules management mode.
+func (v *SettingsView) IsShowingRules() bool {
+	return v.showingRules
+}
+
+// CloseRules dismisses the rules management mode and returns to settings.
+func (v *SettingsView) CloseRules() {
+	v.showingRules = false
+}
+
 func formatBytes(bytes int64) string {
 	const (
 		kb = 1024
@@ -237,6 +259,50 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyMsg:
+		// 0. If actively managing formatting rules
+		if v.showingRules {
+			switch msg.String() {
+			case "up", "k":
+				if v.rulesCursor > 0 {
+					v.rulesCursor--
+				}
+				return v, nil
+			case "down", "j":
+				if v.rulesCursor < len(v.rules)-1 {
+					v.rulesCursor++
+				}
+				return v, nil
+			case "enter", " ", "space", "t":
+				if len(v.rules) > 0 && v.rulesCursor < len(v.rules) {
+					ruleID := v.rules[v.rulesCursor].ID
+					var enabled bool
+					if v.store != nil {
+						var err error
+						enabled, err = v.store.ToggleRule(ruleID)
+						if err != nil {
+							return v, func() tea.Msg { return common.StatusMsg("[错误] 切换规则失败: " + err.Error()) }
+						}
+					} else {
+						enabled = !v.rules[v.rulesCursor].Enabled
+					}
+					v.rules[v.rulesCursor].Enabled = enabled
+					state := "已启用"
+					if !enabled {
+						state = "已禁用"
+					}
+					return v, func() tea.Msg {
+						return common.StatusMsg(fmt.Sprintf("规则《%s》%s", v.rules[v.rulesCursor].Name, state))
+					}
+				}
+				return v, nil
+			case "esc":
+				v.showingRules = false
+				return v, nil
+			default:
+				return v, nil
+			}
+		}
+
 		// 1. If actively editing path for Item 0 (CacheDir) or Item 1 (ExportDir)
 		if v.editingPath {
 			switch msg.String() {
@@ -361,7 +427,7 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				v.cursor--
 			}
 		case "down", "j":
-			if v.cursor < 7 {
+			if v.cursor < 8 {
 				v.cursor++
 			}
 		case "enter", " ":
@@ -437,6 +503,17 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				return v, func() tea.Msg {
 					return common.StatusMsg("[清空确认] 再次确认：请按键盘 [y] 确认执行清空全部缓存，按 [n/Esc] 取消")
 				}
+
+			case 8: // Manage rules
+				if v.store != nil {
+					rules, _ := v.store.LoadRules()
+					v.rules = rules
+				} else {
+					v.rules = text.DefaultRules
+				}
+				v.rulesCursor = 0
+				v.showingRules = true
+				return v, nil
 			}
 		case "r":
 			return v, v.RecalculateCacheSizeCmd()
@@ -449,6 +526,10 @@ func (v *SettingsView) View() string {
 	maxWidth := v.width - 2
 	if maxWidth < 30 {
 		maxWidth = 30
+	}
+
+	if v.showingRules {
+		return v.renderRulesView(maxWidth)
 	}
 
 	var sb strings.Builder
@@ -566,6 +647,12 @@ func (v *SettingsView) View() string {
 			badge: theme.BadgeWarning.Render("按Enter清空"),
 			desc:  "按 [Enter] 触发确认，随后需按键盘 [y] 确认执行清空 / 按 [n/Esc] 取消",
 		},
+		{
+			label: "排版规范与清洗规则",
+			value: fmt.Sprintf("已配置 %d 条规则", len(v.rules)),
+			badge: theme.BadgeInfo.Render("按Enter管理"),
+			desc:  "按 [Enter] 查看并开关省略号/破折号/广告过滤规则",
+		},
 	}
 
 	const (
@@ -644,6 +731,71 @@ func (v *SettingsView) View() string {
 
 			sb.WriteString(line1 + "\n")
 			sb.WriteString(line2 + "\n")
+		}
+	}
+
+	content := sb.String()
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	if len(lines) > v.height {
+		lines = lines[:v.height]
+	}
+	for len(lines) < v.height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (v *SettingsView) renderRulesView(maxWidth int) string {
+	var sb strings.Builder
+	title := " [排版规范化与正则清洗规则]  •  [Space/Enter] 启用/禁用  •  [Esc] 返回设置"
+	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).Render(runewidth.Truncate(title, maxWidth, "...")) + "\n")
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).Render(strings.Repeat("─", maxWidth)) + "\n")
+
+	if len(v.rules) == 0 {
+		sb.WriteString("  当前未加载任何规则。\n")
+		return sb.String()
+	}
+
+	const (
+		barActive       = "▎ ▶ "
+		barActiveIndent = "▎   "
+		barInactive     = "│   "
+	)
+
+	for i, r := range v.rules {
+		isSelected := i == v.rulesCursor
+		checkbox := "[ ]"
+		checkStyle := lipgloss.NewStyle().Foreground(theme.MutedColor)
+		if r.Enabled {
+			checkbox = "[x]"
+			checkStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentEmerald)
+		}
+
+		mode := "[文本]"
+		if r.IsRegex {
+			mode = "[正则]"
+		}
+		scope := "[全局]"
+		if r.BookID != "" {
+			scope = fmt.Sprintf("[小说: %s]", r.BookID)
+		}
+
+		if isSelected {
+			line1 := fmt.Sprintf("%s%s %s  %s",
+				barActive,
+				checkStyle.Render(checkbox),
+				lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).Render(r.Name),
+				lipgloss.NewStyle().Foreground(theme.AccentAmber).Render(mode+" "+scope))
+			line2 := fmt.Sprintf("%s匹配: %s -> %q", barActiveIndent, r.Pattern, r.Replacement)
+			sb.WriteString(line1 + "\n" + lipgloss.NewStyle().Foreground(theme.TextMuted).Render(line2) + "\n\n")
+		} else {
+			line1 := fmt.Sprintf("%s%s %s  %s",
+				barInactive,
+				checkStyle.Render(checkbox),
+				lipgloss.NewStyle().Foreground(theme.TextWhite).Render(r.Name),
+				lipgloss.NewStyle().Foreground(theme.TextMuted).Render(mode+" "+scope))
+			line2 := fmt.Sprintf("%s匹配: %s -> %q", barInactive, r.Pattern, r.Replacement)
+			sb.WriteString(line1 + "\n" + lipgloss.NewStyle().Foreground(theme.TextDim).Render(line2) + "\n\n")
 		}
 	}
 

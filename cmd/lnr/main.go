@@ -16,6 +16,7 @@ import (
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/source/wenku8"
 	"lnr-core/pkg/storage"
+	"lnr-core/pkg/text"
 )
 
 var (
@@ -804,7 +805,119 @@ func main() {
 	cleanCmd.Flags().BoolP("epubs", "e", false, "仅清理已导出的 EPUB 文件")
 	cleanCmd.Flags().BoolP("all", "a", false, "清空所有本地小说缓存与导出文件")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd, cleanCmd)
+	// 12. rule command
+	ruleCmd := &cobra.Command{
+		Use:   "rule",
+		Short: "排版规范化与正则清洗规则管理",
+	}
+
+	ruleListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "列出所有排版清洗规则",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rules, err := store.LoadRules()
+			if err != nil {
+				return fmt.Errorf("加载规则失败: %w", err)
+			}
+			if len(rules) == 0 {
+				fmt.Println("当前未配置任何排版规则。")
+				return nil
+			}
+			fmt.Printf("当前排版清洗规则列表 (共 %d 条):\n", len(rules))
+			fmt.Println(strings.Repeat("-", 90))
+			for i, r := range rules {
+				status := "[已启用]"
+				if !r.Enabled {
+					status = "[已禁用]"
+				}
+				mode := "[文本]"
+				if r.IsRegex {
+					mode = "[正则]"
+				}
+				scope := "[全局]"
+				if r.BookID != "" {
+					scope = fmt.Sprintf("[小说:%s]", r.BookID)
+				}
+				fmt.Printf("[%2d] %-12s | %-8s | %-6s | %-12s | %-24s -> %q (ID: %s)\n",
+					i+1, status, mode, scope, r.Name, r.Pattern, r.Replacement, r.ID)
+			}
+			return nil
+		},
+	}
+
+	ruleAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "添加新的排版清洗规则",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name, _ := cmd.Flags().GetString("name")
+			pattern, _ := cmd.Flags().GetString("pattern")
+			replace, _ := cmd.Flags().GetString("replace")
+			isRegex, _ := cmd.Flags().GetBool("regex")
+			bookID, _ := cmd.Flags().GetString("book")
+
+			if name == "" || pattern == "" {
+				return fmt.Errorf("规则名称 (--name) 与匹配表达式 (--pattern) 均不能为空")
+			}
+
+			rule := text.FormattingRule{
+				Name:        name,
+				Pattern:     pattern,
+				Replacement: replace,
+				IsRegex:     isRegex,
+				BookID:      bookID,
+				Enabled:     true,
+			}
+
+			if err := store.AddRule(rule); err != nil {
+				return fmt.Errorf("添加规则失败: %w", err)
+			}
+
+			fmt.Printf("[成功] 已成功添加排版规则: %q\n", name)
+			return nil
+		},
+	}
+	ruleAddCmd.Flags().StringP("name", "n", "", "规则名称 (必填)")
+	ruleAddCmd.Flags().StringP("pattern", "p", "", "匹配表达式 (必填)")
+	ruleAddCmd.Flags().StringP("replace", "r", "", "替换文本")
+	ruleAddCmd.Flags().Bool("regex", false, "是否为正则表达式")
+	ruleAddCmd.Flags().StringP("book", "b", "", "限定适用的特定小说ID (默认留空表示全局适用)")
+
+	ruleToggleCmd := &cobra.Command{
+		Use:   "toggle <规则ID>",
+		Short: "切换指定规则的启用/禁用状态",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ruleID := args[0]
+			enabled, err := store.ToggleRule(ruleID)
+			if err != nil {
+				return fmt.Errorf("切换规则状态失败: %w", err)
+			}
+			state := "已启用"
+			if !enabled {
+				state = "已禁用"
+			}
+			fmt.Printf("[成功] 规则 %q 当前状态: [%s]\n", ruleID, state)
+			return nil
+		},
+	}
+
+	ruleDeleteCmd := &cobra.Command{
+		Use:   "delete <规则ID>",
+		Short: "删除指定的排版规则",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ruleID := args[0]
+			if err := store.DeleteRule(ruleID); err != nil {
+				return fmt.Errorf("删除规则失败: %w", err)
+			}
+			fmt.Printf("[成功] 已删除规则: %q\n", ruleID)
+			return nil
+		},
+	}
+
+	ruleCmd.AddCommand(ruleListCmd, ruleAddCmd, ruleToggleCmd, ruleDeleteCmd)
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd, cleanCmd, ruleCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

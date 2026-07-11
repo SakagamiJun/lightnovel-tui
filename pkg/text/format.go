@@ -107,9 +107,15 @@ func IndentParagraph(p string) string {
 }
 
 // FormatNovelLines formats content elements into clean display lines.
+// FormatNovelLines formats content elements into clean display lines.
 // It removes watermarks, normalizes punctuation, applies full-width indentation,
 // and optionally converts text to Traditional Chinese.
 func FormatNovelLines(elements []model.ContentElement, traditional bool) ([]string, []string) {
+	return FormatNovelLinesWithRules(elements, traditional, "", nil)
+}
+
+// FormatNovelLinesWithRules formats content elements into clean display lines with custom formatting rules applied.
+func FormatNovelLinesWithRules(elements []model.ContentElement, traditional bool, bookID string, rules []FormattingRule) ([]string, []string) {
 	lines := make([]string, 0, len(elements)*2)
 	illustrations := make([]string, 0)
 
@@ -119,6 +125,13 @@ func FormatNovelLines(elements []model.ContentElement, traditional bool) ([]stri
 				cleaned := CleanParagraph(rawLine)
 				if cleaned == "" {
 					continue
+				}
+				if len(rules) > 0 {
+					cleaned = ApplyRules(cleaned, bookID, rules)
+					cleaned = strings.Trim(cleaned, " \t\r\n\u3000")
+					if cleaned == "" {
+						continue
+					}
 				}
 				if traditional {
 					cleaned = ToTraditional(cleaned)

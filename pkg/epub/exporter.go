@@ -51,6 +51,10 @@ func (e *Exporter) ExportVolume(ctx context.Context, bookID string, volumeIndex 
 	title := fmt.Sprintf("%s - %s", detail.Title, vol.Title)
 	builder := NewBuilder(bookID+"_"+vol.ID, title, detail.Author, detail.Publisher, detail.Description)
 	builder.SetTraditional(e.traditional)
+	if e.store != nil {
+		rules, _ := e.store.LoadRules()
+		builder.SetRules(rules)
+	}
 
 	// Resolve local cover
 	coverPath := e.resolveCover(ctx, bookID, detail.CoverURL)
@@ -105,6 +109,10 @@ func (e *Exporter) ExportFullBook(ctx context.Context, bookID string, outputPath
 
 	builder := NewBuilder(bookID, detail.Title, detail.Author, detail.Publisher, detail.Description)
 	builder.SetTraditional(e.traditional)
+	if e.store != nil {
+		rules, _ := e.store.LoadRules()
+		builder.SetRules(rules)
+	}
 
 	coverPath := e.resolveCover(ctx, bookID, detail.CoverURL)
 	builder.SetCover(coverPath)

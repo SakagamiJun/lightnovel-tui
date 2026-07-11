@@ -32,6 +32,7 @@ type Reader struct {
 	lines         []string
 	illustrations []string
 	traditional   bool
+	rules         []text.FormattingRule
 	sessionStart  time.Time
 }
 
@@ -42,11 +43,17 @@ func NewReader(store *storage.Storage, bookID string) (*Reader, error) {
 		return nil, fmt.Errorf("failed to load catalog for reader: %w", err)
 	}
 
+	var rules []text.FormattingRule
+	if store != nil {
+		rules, _ = store.LoadRules()
+	}
+
 	return &Reader{
 		store:         store,
 		bookID:        bookID,
 		catalog:       catalog,
 		illustrations: make([]string, 0),
+		rules:         rules,
 		sessionStart:  time.Now(),
 	}, nil
 }
@@ -60,8 +67,16 @@ func (r *Reader) LoadChapter(chapterID string) (*model.ChapterContent, error) {
 
 	r.currChapter = ch
 	r.sessionStart = time.Now()
-	r.lines, r.illustrations = text.FormatNovelLines(ch.Elements, r.traditional)
+	r.lines, r.illustrations = text.FormatNovelLinesWithRules(ch.Elements, r.traditional, r.bookID, r.rules)
 	return ch, nil
+}
+
+// SetRules updates formatting rules and refreshes current chapter lines.
+func (r *Reader) SetRules(rules []text.FormattingRule) {
+	r.rules = rules
+	if r.currChapter != nil {
+		r.lines, r.illustrations = text.FormatNovelLinesWithRules(r.currChapter.Elements, r.traditional, r.bookID, r.rules)
+	}
 }
 
 // SetTraditional sets whether to format text in Traditional Chinese.
@@ -71,7 +86,7 @@ func (r *Reader) SetTraditional(traditional bool) {
 	}
 	r.traditional = traditional
 	if r.currChapter != nil {
-		r.lines, r.illustrations = text.FormatNovelLines(r.currChapter.Elements, r.traditional)
+		r.lines, r.illustrations = text.FormatNovelLinesWithRules(r.currChapter.Elements, r.traditional, r.bookID, r.rules)
 	}
 }
 

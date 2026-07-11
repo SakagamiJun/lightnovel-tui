@@ -50,6 +50,7 @@ type Builder struct {
 	Chapters    []ChapterItem
 	Images      map[string]ImageItem // localPath -> ImageItem
 	Traditional bool
+	Rules       []text.FormattingRule
 }
 
 // NewBuilder creates a new EPUB builder instance.
@@ -63,6 +64,11 @@ func NewBuilder(bookID, title, author, publisher, description string) *Builder {
 		Chapters:    make([]ChapterItem, 0),
 		Images:      make(map[string]ImageItem),
 	}
+}
+
+// SetRules configures custom formatting and watermark cleaning rules.
+func (b *Builder) SetRules(rules []text.FormattingRule) {
+	b.Rules = rules
 }
 
 // SetTraditional configures whether to convert exported text to Traditional Chinese.
@@ -247,6 +253,13 @@ func (b *Builder) writeChapterXHTML(w io.Writer, ch ChapterItem, imageResolver f
 			for _, p := range paras {
 				p = text.CleanParagraph(p)
 				if p != "" {
+					if len(b.Rules) > 0 {
+						p = text.ApplyRules(p, b.BookID, b.Rules)
+						p = strings.Trim(p, " \t\r\n\u3000")
+					}
+					if p == "" {
+						continue
+					}
 					if b.Traditional {
 						p = text.ToTraditional(p)
 					}

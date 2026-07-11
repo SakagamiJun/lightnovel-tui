@@ -658,3 +658,55 @@ func TestReaderChapterNavigation(t *testing.T) {
 		t.Fatal("expected command to load next chapter")
 	}
 }
+
+func TestSettingsRulesManagement(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-settings-rules-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sv := NewSettingsView(store)
+	sv.SetSize(80, 24)
+
+	// Move cursor to Item 8 (Rules management)
+	for i := 0; i < 8; i++ {
+		sv.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if sv.cursor != 8 {
+		t.Fatalf("expected cursor at 8, got %d", sv.cursor)
+	}
+
+	// Press Enter to open rules view
+	sv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !sv.IsShowingRules() {
+		t.Fatal("expected IsShowingRules to be true after Enter on item 8")
+	}
+
+	// Render rules view
+	viewStr := sv.View()
+	if !strings.Contains(viewStr, "排版规范化与正则清洗规则") {
+		t.Errorf("expected view to contain rules header, got: %s", viewStr)
+	}
+	if !strings.Contains(viewStr, "规范省略号") {
+		t.Errorf("expected view to contain default rule, got: %s", viewStr)
+	}
+
+	// Press space to toggle rule 0
+	origState := sv.rules[0].Enabled
+	sv.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if sv.rules[0].Enabled == origState {
+		t.Errorf("expected rule 0 enabled state to change from %v", origState)
+	}
+
+	// Press Esc to exit rules view
+	sv.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if sv.IsShowingRules() {
+		t.Fatal("expected IsShowingRules to be false after Esc")
+	}
+}

@@ -196,8 +196,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView == common.ViewSettings
 
 		if msg.String() == "esc" && isMainTab {
-			if m.currentView == common.ViewSettings && (m.settingsView.IsEditing() || m.settingsView.IsConfirmingClear()) {
-				// Let settings view handle esc first (cancelling edit or clear dialog)
+			if m.currentView == common.ViewSettings && (m.settingsView.IsEditing() || m.settingsView.IsConfirmingClear() || m.settingsView.IsShowingRules()) {
+				// Let settings view handle esc first (cancelling edit, clear dialog, or rules view)
 			} else if m.currentView == common.ViewBookshelf && (m.bookshelfView.IsConfirmingDelete() || m.bookshelfView.IsShowingStats()) {
 				// Let bookshelf view handle esc first (cancelling delete confirmation or closing stats modal)
 			} else if m.currentView == common.ViewSearch && m.searchView.IsInputFocused() {
