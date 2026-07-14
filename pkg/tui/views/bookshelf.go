@@ -25,7 +25,12 @@ type updateCheckResultMsg struct {
 type BookshelfView struct {
 	store             *storage.Storage
 	src               source.DataSource
+	allBooks          []model.BookDetail
 	books             []model.BookDetail
+	shelves           []storage.BookshelfGroup
+	activeShelfIdx    int
+	showMoveModal     bool
+	moveCursor        int
 	pinnedSet         map[string]bool
 	cursor            int
 	offset            int
@@ -46,7 +51,9 @@ type BookshelfView struct {
 func NewBookshelfView(store *storage.Storage, onSelect func(bookID string) tea.Cmd) *BookshelfView {
 	return &BookshelfView{
 		store:        store,
+		allBooks:     make([]model.BookDetail, 0),
 		books:        make([]model.BookDetail, 0),
+		shelves:      storage.DefaultBookshelves,
 		pinnedSet:    make(map[string]bool),
 		updatesMap:   make(map[string]int),
 		sortCriteria: storage.SortByLastRead,
@@ -69,20 +76,50 @@ func (v *BookshelfView) SetOnExport(fn func(bookID string, volumeIndex int) tea.
 	v.onExport = fn
 }
 
-// ReloadLoads cached books from storage and partitions pinned books to the top.
+// Reload loads cached books from storage and filters by the active bookshelf category.
 func (v *BookshelfView) Reload() {
 	if v.store != nil {
-		books, err := v.store.ListCachedBooks()
+		all, err := v.store.ListCachedBooks()
 		if err == nil {
+			v.allBooks = all
 			pinnedIDs, _ := v.store.GetPinnedBookIDs()
 			v.pinnedSet = make(map[string]bool, len(pinnedIDs))
 			for _, id := range pinnedIDs {
 				v.pinnedSet[id] = true
 			}
 
+			// Load shelf groups
+			shelves, err := v.store.LoadShelves()
+			if err == nil && len(shelves) > 0 {
+				v.shelves = shelves
+			} else {
+				v.shelves = storage.DefaultBookshelves
+			}
+
+			if v.activeShelfIdx >= len(v.shelves) {
+				v.activeShelfIdx = 0
+			}
+
+			// Filter by active shelf
+			filtered := make([]model.BookDetail, 0)
+			if v.activeShelfIdx == 0 || v.shelves[v.activeShelfIdx].ID == "all" {
+				filtered = make([]model.BookDetail, len(v.allBooks))
+				copy(filtered, v.allBooks)
+			} else {
+				shelfBookIDs := make(map[string]bool)
+				for _, id := range v.shelves[v.activeShelfIdx].BookIDs {
+					shelfBookIDs[id] = true
+				}
+				for _, b := range v.allBooks {
+					if shelfBookIDs[b.ID] {
+						filtered = append(filtered, b)
+					}
+				}
+			}
+
 			// Sort books using active sort criteria and pinned status
-			v.store.SortBooks(books, v.sortCriteria)
-			v.books = books
+			v.store.SortBooks(filtered, v.sortCriteria)
+			v.books = filtered
 		}
 	}
 	if v.pinnedSet == nil {
@@ -90,13 +127,20 @@ func (v *BookshelfView) Reload() {
 	}
 	if v.cursor >= len(v.books) && len(v.books) > 0 {
 		v.cursor = len(v.books) - 1
+	} else if len(v.books) == 0 {
+		v.cursor = 0
+		v.offset = 0
 	}
 	v.loaded = true
 }
 
 // SetBooks sets cached books directly (for testing and external feeds).
 func (v *BookshelfView) SetBooks(books []model.BookDetail) {
+	v.allBooks = books
 	v.books = books
+	if len(v.shelves) == 0 {
+		v.shelves = storage.DefaultBookshelves
+	}
 	if v.pinnedSet == nil {
 		v.pinnedSet = make(map[string]bool)
 	}
@@ -118,6 +162,93 @@ func (v *BookshelfView) IsShowingStats() bool {
 // CloseStats dismisses the reading statistics modal.
 func (v *BookshelfView) CloseStats() {
 	v.showStatsModal = false
+}
+
+// IsMovingBook returns whether the move bookshelf modal is currently open.
+func (v *BookshelfView) IsMovingBook() bool {
+	return v.showMoveModal
+}
+
+// CloseMoveModal dismisses the move bookshelf modal.
+func (v *BookshelfView) CloseMoveModal() {
+	v.showMoveModal = false
+}
+
+func (v *BookshelfView) targetShelves() []storage.BookshelfGroup {
+	targets := make([]storage.BookshelfGroup, 0, len(v.shelves))
+	for _, sh := range v.shelves {
+		if sh.ID != "all" {
+			targets = append(targets, sh)
+		}
+	}
+	return targets
+}
+
+func (v *BookshelfView) executeMoveBook(target storage.BookshelfGroup) tea.Cmd {
+	if v.cursor >= len(v.books) {
+		v.showMoveModal = false
+		return nil
+	}
+	b := v.books[v.cursor]
+	v.showMoveModal = false
+	if v.store != nil {
+		_ = v.store.MoveBookToShelf(b.ID, target.ID)
+	}
+	v.Reload()
+	return func() tea.Msg {
+		return common.StatusMsg(fmt.Sprintf("已将《%s》移至书架「%s」", b.Title, target.Name))
+	}
+}
+
+func (v *BookshelfView) renderMoveModal() string {
+	maxWidth := v.width - 6
+	if maxWidth > 56 {
+		maxWidth = 56
+	}
+	if maxWidth < 32 {
+		maxWidth = 32
+	}
+
+	selectedTitle := ""
+	if v.cursor < len(v.books) {
+		selectedTitle = v.books[v.cursor].Title
+	}
+
+	var sb strings.Builder
+	title := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
+		Render(fmt.Sprintf("[移动藏书分组] 《%s》", runewidth.Truncate(selectedTitle, 24, "...")))
+	sb.WriteString(title + "\n\n")
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextMuted).Render("选择目标书架分类:") + "\n\n")
+
+	targetShelves := v.targetShelves()
+	for i, sh := range targetShelves {
+		isSelected := i == v.moveCursor
+		keyNum := fmt.Sprintf("[%d]", i+1)
+		count := len(sh.BookIDs)
+		if isSelected {
+			line := fmt.Sprintf("  ▎ ▶ %s %s  %s",
+				lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).Render(keyNum),
+				lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(sh.Name),
+				lipgloss.NewStyle().Foreground(theme.AccentAmber).Render(fmt.Sprintf("(当前 %d 本)", count)))
+			sb.WriteString(line + "\n")
+		} else {
+			line := fmt.Sprintf("    │ %s %s  %s",
+				lipgloss.NewStyle().Foreground(theme.TextMuted).Render(keyNum),
+				lipgloss.NewStyle().Foreground(theme.TextWhite).Render(sh.Name),
+				lipgloss.NewStyle().Foreground(theme.TextDim).Render(fmt.Sprintf("(当前 %d 本)", count)))
+			sb.WriteString(line + "\n")
+		}
+	}
+
+	sb.WriteString("\n" + lipgloss.NewStyle().Foreground(theme.BorderColor).Render(strings.Repeat("─", maxWidth-4)) + "\n")
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextMuted).Render("[1-9/↑/↓] 选择  •  [Enter] 确认移组  •  [Esc] 取消"))
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.PrimaryColor).
+		Padding(1, 2).
+		Width(maxWidth).
+		Render(sb.String())
 }
 
 func (v *BookshelfView) resumeRecentBook() tea.Cmd {
@@ -156,9 +287,9 @@ func (v *BookshelfView) SetSize(width, height int) {
 }
 
 func (v *BookshelfView) visibleCards() int {
-	// Fixed lines: TitleBar (1) + TopInd (1) + BotInd (1) = 3 lines.
+	// Fixed lines: TitleBar (1) + GroupsBar (1) + TopInd (1) + BotInd (1) = 4 lines.
 	// Each modern card takes exactly 3 lines.
-	avail := v.height - 3
+	avail := v.height - 4
 	if avail < 3 {
 		return 1
 	}
@@ -239,6 +370,39 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if v.showMoveModal {
+			targets := v.targetShelves()
+			switch msg.String() {
+			case "esc":
+				v.showMoveModal = false
+				return v, nil
+			case "up", "k":
+				if v.moveCursor > 0 {
+					v.moveCursor--
+				}
+				return v, nil
+			case "down", "j":
+				if v.moveCursor < len(targets)-1 {
+					v.moveCursor++
+				}
+				return v, nil
+			case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+				idx := int(msg.String()[0] - '1')
+				if idx >= 0 && idx < len(targets) {
+					v.moveCursor = idx
+					return v, v.executeMoveBook(targets[idx])
+				}
+				return v, nil
+			case "enter":
+				if len(targets) > 0 && v.moveCursor < len(targets) {
+					return v, v.executeMoveBook(targets[v.moveCursor])
+				}
+				return v, nil
+			default:
+				return v, nil
+			}
+		}
+
 		if v.showStatsModal {
 			switch msg.String() {
 			case "esc", "s", "S":
@@ -299,13 +463,39 @@ func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 				v.cursor = len(v.books) - 1
 			}
 			v.adjustOffset()
-		case "g", "home":
+		case "g":
+			if len(v.shelves) > 0 {
+				v.activeShelfIdx = (v.activeShelfIdx + 1) % len(v.shelves)
+				v.Reload()
+				v.cursor = 0
+				v.offset = 0
+				return v, func() tea.Msg {
+					return common.StatusMsg(fmt.Sprintf("已切换至书架分组「%s」", v.shelves[v.activeShelfIdx].Name))
+				}
+			}
+		case "G":
+			if len(v.shelves) > 0 {
+				v.activeShelfIdx = (v.activeShelfIdx - 1 + len(v.shelves)) % len(v.shelves)
+				v.Reload()
+				v.cursor = 0
+				v.offset = 0
+				return v, func() tea.Msg {
+					return common.StatusMsg(fmt.Sprintf("已切换至书架分组「%s」", v.shelves[v.activeShelfIdx].Name))
+				}
+			}
+		case "home":
 			v.cursor = 0
 			v.offset = 0
-		case "G", "end":
+		case "end":
 			if len(v.books) > 0 {
 				v.cursor = len(v.books) - 1
 				v.adjustOffset()
+			}
+		case "m", "M":
+			if len(v.books) > 0 && v.cursor < len(v.books) {
+				v.showMoveModal = true
+				v.moveCursor = 0
+				return v, nil
 			}
 		case "o", "O":
 			switch v.sortCriteria {
@@ -420,19 +610,13 @@ func (v *BookshelfView) View() string {
 		return RenderStatsModal(v.store, v.width, v.height)
 	}
 
+	if v.showMoveModal {
+		return v.renderMoveModal()
+	}
+
 	maxWidth := v.width - 2
 	if maxWidth < 30 {
 		maxWidth = 30
-	}
-
-	if len(v.books) == 0 {
-		emptyBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.BorderColor).
-			Padding(2, 4).
-			Align(lipgloss.Center).
-			Render("本地书架暂无藏书\n\n尚未缓存任何轻小说\n按 [s] 查看阅读统计与打卡热力图\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！")
-		return emptyBox
 	}
 
 	var sb strings.Builder
@@ -448,12 +632,71 @@ func (v *BookshelfView) View() string {
 		if v.checkingUpdates {
 			updateStatus = " • [检查中...]"
 		}
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [s] 统计 • [c] 续读 • [排序: %s(o)] • [u] 检查更新 • [p] 置顶 • [x] 删除%s",
+		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [g/G]分组 • [m]移组 • [s]统计 • [c]续读 • [排序: %s(o)] • [u]更新 • [p]置顶 • [x]删除%s",
 			curPos, len(v.books), sortName, updateStatus)
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
 			Render(runewidth.Truncate(titleText, maxWidth, "..."))
 	}
 	sb.WriteString(titleBar + "\n")
+
+	// Bookshelf Groups Bar
+	if len(v.shelves) > 0 {
+		var shelfTabs []string
+		for i, sh := range v.shelves {
+			count := 0
+			if sh.ID == "all" {
+				count = len(v.allBooks)
+			} else {
+				idSet := make(map[string]bool)
+				for _, id := range sh.BookIDs {
+					idSet[id] = true
+				}
+				for _, b := range v.allBooks {
+					if idSet[b.ID] {
+						count++
+					}
+				}
+			}
+			label := fmt.Sprintf("[%s (%d)]", sh.Name, count)
+			if i == v.activeShelfIdx {
+				shelfTabs = append(shelfTabs, lipgloss.NewStyle().
+					Bold(true).
+					Foreground(theme.TextWhite).
+					Background(theme.SecondaryColor).
+					Padding(0, 1).
+					Render(label))
+			} else {
+				shelfTabs = append(shelfTabs, lipgloss.NewStyle().
+					Foreground(theme.TextMuted).
+					Background(theme.BarBg).
+					Padding(0, 1).
+					Render(label))
+			}
+		}
+		groupsBar := " 分组: " + strings.Join(shelfTabs, " ") + "  " +
+			lipgloss.NewStyle().Foreground(theme.TextDim).Render("(按 [g/G] 快速轮换)")
+		sb.WriteString(runewidth.Truncate(groupsBar, maxWidth, "...") + "\n")
+	}
+
+	if len(v.books) == 0 {
+		shelfName := "全部"
+		if v.activeShelfIdx < len(v.shelves) {
+			shelfName = v.shelves[v.activeShelfIdx].Name
+		}
+		var emptyPrompt string
+		if v.activeShelfIdx == 0 {
+			emptyPrompt = "本地书架暂无藏书\n\n尚未缓存任何轻小说\n按 [s] 查看阅读统计与打卡热力图\n按 [Tab] 切换到在线检索，输入书名检索并下载阅读！"
+		} else {
+			emptyPrompt = fmt.Sprintf("当前书架「%s」暂无藏书\n\n按 [g/G] 切换其他书架分组\n选中小说按 [m] 可自由移入此分类", shelfName)
+		}
+		sb.WriteString(lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(theme.BorderColor).
+			Padding(2, 4).
+			Align(lipgloss.Center).
+			Render(emptyPrompt))
+		return sb.String()
+	}
 
 	v.adjustOffset()
 	visible := v.visibleCards()

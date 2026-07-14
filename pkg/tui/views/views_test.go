@@ -710,3 +710,91 @@ func TestSettingsRulesManagement(t *testing.T) {
 		t.Fatal("expected IsShowingRules to be false after Esc")
 	}
 }
+
+func TestBookshelfGroupSwitchingAndMoving(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-bookshelf-groups-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	book1 := &model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:    "b_1",
+			Title: "刀剑神域",
+		},
+	}
+	book2 := &model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:    "b_2",
+			Title: "加速世界",
+		},
+	}
+	_ = store.SaveBookDetail(book1)
+	_ = store.SaveBookDetail(book2)
+
+	bv := NewBookshelfView(store, nil)
+	bv.SetSize(80, 24)
+	bv.Reload()
+
+	// Initially in "全部" (All), should show 2 books
+	if len(bv.books) != 2 {
+		t.Fatalf("expected 2 books in 'all' shelf, got %d", len(bv.books))
+	}
+
+	// Press 'g' to cycle to "在读" (Reading) -> should have 0 books
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if bv.activeShelfIdx != 1 {
+		t.Fatalf("expected activeShelfIdx 1, got %d", bv.activeShelfIdx)
+	}
+	if len(bv.books) != 0 {
+		t.Fatalf("expected 0 books in 'reading' shelf initially, got %d", len(bv.books))
+	}
+
+	// Render view on empty shelf -> verify prompt is shown
+	emptyView := bv.View()
+	if !strings.Contains(emptyView, "暂无藏书") {
+		t.Errorf("expected view to indicate shelf is empty, got: %s", emptyView)
+	}
+
+	// Press 'G' to cycle back to "全部" (All)
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if bv.activeShelfIdx != 0 {
+		t.Fatalf("expected activeShelfIdx 0, got %d", bv.activeShelfIdx)
+	}
+	if len(bv.books) != 2 {
+		t.Fatalf("expected 2 books back in 'all', got %d", len(bv.books))
+	}
+
+	// Press 'm' to open move modal
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	if !bv.IsMovingBook() {
+		t.Fatal("expected IsMovingBook to be true after pressing 'm'")
+	}
+
+	// Render move modal
+	modalView := bv.View()
+	if !strings.Contains(modalView, "移动藏书分组") {
+		t.Errorf("expected modal to contain header, got: %s", modalView)
+	}
+	if !strings.Contains(modalView, "在读") {
+		t.Errorf("expected modal to list '在读' shelf, got: %s", modalView)
+	}
+
+	// Press '1' to move current book ("刀剑神域") to "在读"
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	if bv.IsMovingBook() {
+		t.Fatal("expected move modal to be closed after choosing shelf")
+	}
+
+	// Now press 'g' to switch to "在读" -> should now have 1 book ("刀剑神域")!
+	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if len(bv.books) != 1 || bv.books[0].ID != "b_1" {
+		t.Fatalf("expected 1 book (b_1) in 'reading' shelf, got %d books", len(bv.books))
+	}
+}

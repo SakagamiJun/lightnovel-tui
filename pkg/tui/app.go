@@ -198,8 +198,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "esc" && isMainTab {
 			if m.currentView == common.ViewSettings && (m.settingsView.IsEditing() || m.settingsView.IsConfirmingClear() || m.settingsView.IsShowingRules()) {
 				// Let settings view handle esc first (cancelling edit, clear dialog, or rules view)
-			} else if m.currentView == common.ViewBookshelf && (m.bookshelfView.IsConfirmingDelete() || m.bookshelfView.IsShowingStats()) {
-				// Let bookshelf view handle esc first (cancelling delete confirmation or closing stats modal)
+			} else if m.currentView == common.ViewBookshelf && (m.bookshelfView.IsConfirmingDelete() || m.bookshelfView.IsShowingStats() || m.bookshelfView.IsMovingBook()) {
+				// Let bookshelf view handle esc first (cancelling delete confirmation, stats, or move modal)
 			} else if m.currentView == common.ViewSearch && m.searchView.IsInputFocused() {
 				// Let search view handle esc first (blurring search input)
 			} else {
