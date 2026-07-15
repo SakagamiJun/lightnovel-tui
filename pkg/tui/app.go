@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"lnr-core/pkg/epub"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
@@ -114,6 +115,9 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 	})
 	m.catalogView.SetOnExport(func(bookID string, volumeIndex int) tea.Cmd {
 		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
+	})
+	m.catalogView.SetOnExportWithOptions(func(bookID string, opt epub.ExportOption) tea.Cmd {
+		return startExportWithOptionsTask(src, store, bookID, opt, m.settingsView.ExportDir(), nil)
 	})
 
 	m.readerView = views.NewReaderView(store, src)

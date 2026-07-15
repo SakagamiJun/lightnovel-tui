@@ -133,20 +133,23 @@ func startDownloadTask(src source.DataSource, store *storage.Storage, bookID str
 	return listenProgress(ch)
 }
 
-func startExportTask(src source.DataSource, store *storage.Storage, bookID string, volumeIndex int, customExportDir string) tea.Cmd {
+func startExportWithOptionsTask(src source.DataSource, store *storage.Storage, bookID string, opt epub.ExportOption, customExportDir string, onComplete func()) tea.Cmd {
 	ch := make(chan string, 16)
 
 	go func() {
 		defer close(ch)
+		if onComplete != nil {
+			defer onComplete()
+		}
 		ctx := context.Background()
 
-		ch <- "[导出] 正在准备导出任务..."
+		ch <- "[导出] 正在准备 EPUB 导出任务..."
 
-		// Ensure detail & catalog exist
+		// 1. Ensure detail is cached
 		detail, err := store.LoadBookDetail(bookID)
 		if err != nil || detail == nil {
 			if src == nil {
-				ch <- fmt.Sprintf("[错误] 未找到书籍 ID %s 的缓存数据", bookID)
+				ch <- fmt.Sprintf("[错误] 未找到书籍 ID %s 的缓存信息", bookID)
 				return
 			}
 			ctxTimeout, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -159,6 +162,7 @@ func startExportTask(src source.DataSource, store *storage.Storage, bookID strin
 			_ = store.SaveBookDetail(detail)
 		}
 
+		// 2. Ensure catalog is cached
 		catalog, err := store.LoadCatalog(bookID)
 		if err != nil || catalog == nil {
 			if src == nil {
@@ -192,15 +196,15 @@ func startExportTask(src source.DataSource, store *storage.Storage, bookID strin
 			idx int
 			vol *model.Volume
 		}
-		if volumeIndex > 0 {
-			if volumeIndex > len(catalog.Volumes) {
-				ch <- fmt.Sprintf("[错误] 分卷序号 %d 超出范围 (1..%d)", volumeIndex, len(catalog.Volumes))
-				return
+		if len(opt.VolumeIndexes) > 0 {
+			for _, idx := range opt.VolumeIndexes {
+				if idx >= 1 && idx <= len(catalog.Volumes) {
+					volumesToCheck = append(volumesToCheck, struct {
+						idx int
+						vol *model.Volume
+					}{idx: idx, vol: &catalog.Volumes[idx-1]})
+				}
 			}
-			volumesToCheck = append(volumesToCheck, struct {
-				idx int
-				vol *model.Volume
-			}{idx: volumeIndex, vol: &catalog.Volumes[volumeIndex-1]})
 		} else {
 			for i := range catalog.Volumes {
 				volumesToCheck = append(volumesToCheck, struct {
@@ -230,45 +234,44 @@ func startExportTask(src source.DataSource, store *storage.Storage, bookID strin
 
 		exporter := epub.NewExporter(store, dl)
 
-		cleanTitle := sanitizeFileName(detail.Title)
-		if volumeIndex > 0 {
-			vol := catalog.Volumes[volumeIndex-1]
-			cleanVol := sanitizeFileName(vol.Title)
-			outFile := filepath.Join(exportDir, fmt.Sprintf("%s - %s.epub", cleanTitle, cleanVol))
-			ch <- fmt.Sprintf("[导出中] 正在打包 EPUB: %s...", filepath.Base(outFile))
-			resPath, err := exporter.ExportVolume(ctx, bookID, volumeIndex, outFile)
-			if err != nil {
-				ch <- fmt.Sprintf("[错误] 导出分卷失败: %v", err)
-				return
+		modeDesc := "标准版(含插图)"
+		if opt.NoImages {
+			modeDesc = "纯文本轻量版(无图)"
+		}
+
+		ch <- fmt.Sprintf("[导出中] 正在打包 EPUB [%s]...", modeDesc)
+		outFiles, err := exporter.ExportWithOptions(ctx, bookID, opt, exportDir, func(current, total int, volTitle, outFile string) {
+			msg := fmt.Sprintf("[导出中] 《%s》[%d/%d] 成功打包: %s", detail.Title, current, total, filepath.Base(outFile))
+			select {
+			case ch <- msg:
+			default:
 			}
-			ch <- fmt.Sprintf("[完成] 成功导出分卷 EPUB: %s", resPath)
-		} else if volumeIndex == common.ExportModeAllVolumesSeparate {
-			ch <- fmt.Sprintf("[导出中] 准备按分卷导出全部 %d 卷独立 EPUB...", len(catalog.Volumes))
-			outFiles, err := exporter.ExportAllVolumes(ctx, bookID, exportDir, func(current, total int, volTitle, outFile string) {
-				msg := fmt.Sprintf("[导出中] 《%s》[%d/%d 卷] 成功打包: %s", detail.Title, current, total, filepath.Base(outFile))
-				select {
-				case ch <- msg:
-				default:
-				}
-			})
-			if err != nil {
-				ch <- fmt.Sprintf("[错误] 按分卷分别导出失败: %v", err)
-				return
-			}
-			ch <- fmt.Sprintf("[完成] 成功导出全部分卷 EPUB (共 %d 卷) 到目录: %s", len(outFiles), exportDir)
+		})
+		if err != nil {
+			ch <- fmt.Sprintf("[错误] 导出 EPUB 失败: %v", err)
+			return
+		}
+
+		if len(outFiles) == 1 {
+			ch <- fmt.Sprintf("[完成] 成功导出 EPUB: %s", outFiles[0])
 		} else {
-			outFile := filepath.Join(exportDir, fmt.Sprintf("%s.epub", cleanTitle))
-			ch <- fmt.Sprintf("[导出中] 正在打包全本 EPUB: %s...", filepath.Base(outFile))
-			resPath, err := exporter.ExportFullBook(ctx, bookID, outFile)
-			if err != nil {
-				ch <- fmt.Sprintf("[错误] 导出全本失败: %v", err)
-				return
-			}
-			ch <- fmt.Sprintf("[完成] 成功导出全本 EPUB: %s", resPath)
+			ch <- fmt.Sprintf("[完成] 成功导出全部分卷 EPUB (共 %d 卷) 到目录: %s", len(outFiles), exportDir)
 		}
 	}()
 
 	return listenProgress(ch)
+}
+
+func startExportTask(src source.DataSource, store *storage.Storage, bookID string, volumeIndex int, customExportDir string) tea.Cmd {
+	var opt epub.ExportOption
+	if volumeIndex == common.ExportModeAllVolumesSeparate {
+		opt = epub.ExportOption{SplitVolumes: true}
+	} else if volumeIndex > 0 {
+		opt = epub.ExportOption{VolumeIndexes: []int{volumeIndex}}
+	} else {
+		opt = epub.ExportOption{SplitVolumes: false}
+	}
+	return startExportWithOptionsTask(src, store, bookID, opt, customExportDir, nil)
 }
 
 func sanitizeFileName(name string) string {

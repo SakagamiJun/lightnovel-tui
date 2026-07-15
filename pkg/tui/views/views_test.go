@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"lnr-core/pkg/epub"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
@@ -348,8 +349,12 @@ func TestViewsDownloadAndExportCallbacks(t *testing.T) {
 		t.Errorf("expected catalog split export (vol %d), got book=%s vol=%d", common.ExportModeAllVolumesSeparate, cExportBookID, cExportVol)
 	}
 
-	// Press 'E' for full book export
+	// Press 'E' for export modal, then press Enter
 	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+	if !cv.IsExportModalOpen() {
+		t.Errorf("expected export modal to be open after pressing E")
+	}
+	cv.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cExportBookID != "book_cat_1" || cExportVol != common.ExportModeFullBook {
 		t.Errorf("expected catalog full book export (vol 0), got book=%s vol=%d", cExportBookID, cExportVol)
 	}
@@ -796,5 +801,93 @@ func TestBookshelfGroupSwitchingAndMoving(t *testing.T) {
 	bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	if len(bv.books) != 1 || bv.books[0].ID != "b_1" {
 		t.Fatalf("expected 1 book (b_1) in 'reading' shelf, got %d books", len(bv.books))
+	}
+}
+
+func TestCatalogVolumeSelectionAndExportModal(t *testing.T) {
+	cv := NewCatalogView(nil, nil, nil)
+	cv.SetSize(80, 24)
+	cv.bookID = "book_test_export"
+	cv.detail = &model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:    "book_test_export",
+			Title: "魔法禁书目录",
+		},
+	}
+	cv.catalog = &model.BookCatalog{
+		BookID: "book_test_export",
+		Volumes: []model.Volume{
+			{ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}}},
+			{ID: "v2", Title: "第二卷", Chapters: []model.Chapter{{ID: "c2", Title: "第二章"}}},
+		},
+	}
+	cv.flattenItems()
+
+	var exportedOpt epub.ExportOption
+	var exportedBookID string
+	cv.SetOnExportWithOptions(func(bookID string, opt epub.ExportOption) tea.Cmd {
+		exportedBookID = bookID
+		exportedOpt = opt
+		return nil
+	})
+
+	// Cursor is at 0 (vol 1). Press space to toggle selection on vol 1
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if !cv.selectedVols[1] {
+		t.Errorf("expected volume 1 to be selected")
+	}
+
+	// Move cursor down to vol 2 (index 2 in flatItems) and select it
+	cv.cursor = 2
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if !cv.selectedVols[2] {
+		t.Errorf("expected volume 2 to be selected")
+	}
+
+	// Verify view rendering contains [x] checkmarks
+	viewOut := cv.View()
+	if !strings.Contains(viewOut, "[x]") {
+		t.Errorf("expected view to contain [x] checkmark, got: %s", viewOut)
+	}
+	if !strings.Contains(viewOut, "已勾选 2 卷") {
+		t.Errorf("expected view to indicate 2 volumes selected, got: %s", viewOut)
+	}
+
+	// Press 'E' to open export modal
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'E'}})
+	if !cv.IsExportModalOpen() {
+		t.Fatal("expected export modal to be open")
+	}
+
+	// Modal view should show options
+	modalView := cv.View()
+	if !strings.Contains(modalView, "EPUB 导出选项设置") {
+		t.Errorf("expected modal to contain header, got: %s", modalView)
+	}
+	if !strings.Contains(modalView, "所选分卷 (2卷)") {
+		t.Errorf("expected modal to show selected volumes scope, got: %s", modalView)
+	}
+
+	// Move focus to row 1 (images) and toggle to pure-text
+	cv.Update(tea.KeyMsg{Type: tea.KeyDown})
+	cv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if cv.exportIncludeImages {
+		t.Errorf("expected exportIncludeImages to be toggled to false (pure text)")
+	}
+
+	// Press Enter to confirm and export
+	cv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cv.IsExportModalOpen() {
+		t.Errorf("expected modal to close after Enter")
+	}
+
+	if exportedBookID != "book_test_export" {
+		t.Errorf("expected exported bookID 'book_test_export', got %s", exportedBookID)
+	}
+	if len(exportedOpt.VolumeIndexes) != 2 || exportedOpt.VolumeIndexes[0] != 1 || exportedOpt.VolumeIndexes[1] != 2 {
+		t.Errorf("expected volume indexes [1, 2], got %v", exportedOpt.VolumeIndexes)
+	}
+	if !exportedOpt.NoImages {
+		t.Errorf("expected NoImages to be true")
 	}
 }

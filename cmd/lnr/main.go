@@ -223,48 +223,68 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			bookID := args[0]
-			targetVol, _ := cmd.Flags().GetInt("volume")
+			volStr, _ := cmd.Flags().GetString("volume")
+			noImages, _ := cmd.Flags().GetBool("no-images")
 			split, _ := cmd.Flags().GetBool("split")
 			outputPath, _ := cmd.Flags().GetString("output")
 			traditional, _ := cmd.Flags().GetBool("traditional")
 			ctx := context.Background()
 
+			volIndexes, err := epub.ParseVolumeIndexes(volStr)
+			if err != nil {
+				return fmt.Errorf("分卷参数解析失败: %w", err)
+			}
+
 			dl, _ := downloader.NewDownloader(src, store)
 			exporter := epub.NewExporter(store, dl)
 			exporter.SetTraditional(traditional)
 
+			opt := epub.ExportOption{
+				VolumeIndexes: volIndexes,
+				NoImages:      noImages,
+				SplitVolumes:  split,
+			}
+
+			modeDesc := "标准版(含插图)"
+			if noImages {
+				modeDesc = "纯文本轻量版(无图)"
+			}
+
 			if split {
-				fmt.Printf("[导出] 正在将书籍 %s 的所有分卷分别导出为独立 EPUB 文件...\n", bookID)
-				outFiles, err := exporter.ExportAllVolumes(ctx, bookID, outputPath, func(current, total int, volTitle, outFile string) {
+				fmt.Printf("[导出] 正在将书籍 %s 分别导出为独立 EPUB 文件 [%s]...\n", bookID, modeDesc)
+				outFiles, err := exporter.ExportWithOptions(ctx, bookID, opt, outputPath, func(current, total int, volTitle, outFile string) {
 					fmt.Printf("  [%d/%d] (%.1f%%) 已导出分卷: %s -> %s\n", current, total, float64(current)/float64(total)*100, volTitle, filepath.Base(outFile))
 				})
 				if err != nil {
 					return fmt.Errorf("按分卷分别导出 EPUB 失败: %w", err)
 				}
-				fmt.Printf("[完成] 成功导出全部 %d 卷独立 EPUB 文件！\n", len(outFiles))
+				fmt.Printf("[完成] 成功导出 %d 卷独立 EPUB 文件！\n", len(outFiles))
 				return nil
 			}
 
-			if targetVol > 0 {
-				fmt.Printf("[导出] 正在导出书籍 %s 的第 %d 卷为 EPUB...\n", bookID, targetVol)
-				outFile, err := exporter.ExportVolume(ctx, bookID, targetVol, outputPath)
-				if err != nil {
-					return fmt.Errorf("导出分卷 EPUB 失败: %w", err)
+			if len(volIndexes) > 0 {
+				var volDesc []string
+				for _, v := range volIndexes {
+					volDesc = append(volDesc, fmt.Sprintf("%d", v))
 				}
-				fmt.Printf("[完成] 成功导出分卷 EPUB 文件: %s\n", outFile)
+				fmt.Printf("[导出] 正在导出书籍 %s 的分卷 [%s] 为 EPUB [%s]...\n", bookID, strings.Join(volDesc, ","), modeDesc)
 			} else {
-				fmt.Printf("[导出] 正在导出书籍 %s 的全本为 EPUB...\n", bookID)
-				outFile, err := exporter.ExportFullBook(ctx, bookID, outputPath)
-				if err != nil {
-					return fmt.Errorf("导出全本 EPUB 失败: %w", err)
-				}
-				fmt.Printf("[完成] 成功导出全本 EPUB 文件: %s\n", outFile)
+				fmt.Printf("[导出] 正在导出书籍 %s 的全本为 EPUB [%s]...\n", bookID, modeDesc)
+			}
+
+			outFiles, err := exporter.ExportWithOptions(ctx, bookID, opt, outputPath, nil)
+			if err != nil {
+				return fmt.Errorf("导出 EPUB 失败: %w", err)
+			}
+			for _, f := range outFiles {
+				fmt.Printf("[完成] 成功导出 EPUB 文件: %s\n", f)
 			}
 			return nil
 		},
 	}
-	exportCmd.Flags().IntP("volume", "v", 0, "指定导出分卷 (默认0表示整本导出)")
-	exportCmd.Flags().BoolP("split", "s", false, "将所有分卷分别导出为独立的 EPUB 文件 (每卷一个 EPUB)")
+	exportCmd.Flags().StringP("volume", "v", "", "指定导出分卷 (支持单个分卷如 '1'，多个分卷如 '1,2,3' 或范围 '1-3'，默认导出全本)")
+	exportCmd.Flags().Bool("no-images", false, "纯文本轻量导出，去除插图与封面，体积缩减 90%+")
+	exportCmd.Flags().BoolP("split", "s", false, "将分卷分别导出为独立的 EPUB 文件 (每卷一个 EPUB)")
 	exportCmd.Flags().StringP("output", "o", "", "指定导出 EPUB 文件路径或保存目录")
 	exportCmd.Flags().BoolP("traditional", "t", false, "转换为繁体中文 (Traditional Chinese) 导出")
 

@@ -50,6 +50,7 @@ type Builder struct {
 	Chapters    []ChapterItem
 	Images      map[string]ImageItem // localPath -> ImageItem
 	Traditional bool
+	NoImages    bool
 	Rules       []text.FormattingRule
 }
 
@@ -76,6 +77,11 @@ func (b *Builder) SetTraditional(traditional bool) {
 	b.Traditional = traditional
 }
 
+// SetNoImages configures whether to omit cover and all illustrations for lightweight text-only export.
+func (b *Builder) SetNoImages(noImages bool) {
+	b.NoImages = noImages
+}
+
 // SetCover specifies the local path to the cover image.
 func (b *Builder) SetCover(coverPath string) {
 	b.CoverPath = coverPath
@@ -84,26 +90,28 @@ func (b *Builder) SetCover(coverPath string) {
 // AddChapter adds a chapter to the EPUB.
 func (b *Builder) AddChapter(id, title string, elements []model.ContentElement, imageResolver func(url string) string) {
 	fileName := fmt.Sprintf("chapter_%s.xhtml", id)
-	// Register local images
-	for _, el := range elements {
-		if el.Type == model.ContentTypeImage && el.URL != "" && imageResolver != nil {
-			localPath := imageResolver(el.URL)
-			if localPath != "" {
-				if _, exists := b.Images[localPath]; !exists {
-					ext := strings.ToLower(filepath.Ext(localPath))
-					mediaType := "image/jpeg"
-					if ext == ".png" {
-						mediaType = "image/png"
-					} else if ext == ".gif" {
-						mediaType = "image/gif"
-					}
-					imgID := fmt.Sprintf("img_%d", len(b.Images)+1)
-					epubPath := fmt.Sprintf("images/%s%s", imgID, ext)
-					b.Images[localPath] = ImageItem{
-						ID:        imgID,
-						LocalPath: localPath,
-						EPUBPath:  epubPath,
-						MediaType: mediaType,
+	// Register local images if not in pure-text mode
+	if !b.NoImages {
+		for _, el := range elements {
+			if el.Type == model.ContentTypeImage && el.URL != "" && imageResolver != nil {
+				localPath := imageResolver(el.URL)
+				if localPath != "" {
+					if _, exists := b.Images[localPath]; !exists {
+						ext := strings.ToLower(filepath.Ext(localPath))
+						mediaType := "image/jpeg"
+						if ext == ".png" {
+							mediaType = "image/png"
+						} else if ext == ".gif" {
+							mediaType = "image/gif"
+						}
+						imgID := fmt.Sprintf("img_%d", len(b.Images)+1)
+						epubPath := fmt.Sprintf("images/%s%s", imgID, ext)
+						b.Images[localPath] = ImageItem{
+							ID:        imgID,
+							LocalPath: localPath,
+							EPUBPath:  epubPath,
+							MediaType: mediaType,
+						}
 					}
 				}
 			}
@@ -151,10 +159,10 @@ func (b *Builder) WriteTo(w io.Writer, imageResolver func(url string) string) er
 		return err
 	}
 
-	// 3. Write Cover Image if present
+	// 3. Write Cover Image if present and not NoImages
 	hasCover := false
 	var coverItem ImageItem
-	if b.CoverPath != "" {
+	if !b.NoImages && b.CoverPath != "" {
 		if _, err := os.Stat(b.CoverPath); err == nil {
 			hasCover = true
 			ext := strings.ToLower(filepath.Ext(b.CoverPath))
@@ -174,11 +182,13 @@ func (b *Builder) WriteTo(w io.Writer, imageResolver func(url string) string) er
 		}
 	}
 
-	// 4. Stream illustration images into OEBPS/images/
-	for _, img := range b.Images {
-		if _, err := os.Stat(img.LocalPath); err == nil {
-			if err := streamFileToZip(zw, "OEBPS/"+img.EPUBPath, img.LocalPath); err != nil {
-				return fmt.Errorf("failed to stream image %s: %w", img.LocalPath, err)
+	// 4. Stream illustration images into OEBPS/images/ if not NoImages
+	if !b.NoImages {
+		for _, img := range b.Images {
+			if _, err := os.Stat(img.LocalPath); err == nil {
+				if err := streamFileToZip(zw, "OEBPS/"+img.EPUBPath, img.LocalPath); err != nil {
+					return fmt.Errorf("failed to stream image %s: %w", img.LocalPath, err)
+				}
 			}
 		}
 	}
@@ -268,7 +278,7 @@ func (b *Builder) writeChapterXHTML(w io.Writer, ch ChapterItem, imageResolver f
 					sb.WriteString("</p>\n")
 				}
 			}
-		} else if el.Type == model.ContentTypeImage && el.URL != "" && imageResolver != nil {
+		} else if el.Type == model.ContentTypeImage && el.URL != "" && imageResolver != nil && !b.NoImages {
 			localPath := imageResolver(el.URL)
 			if item, ok := b.Images[localPath]; ok {
 				sb.WriteString(fmt.Sprintf("    <div class=\"illust-container\"><img src=\"%s\" alt=\"illustration\" /></div>\n", item.EPUBPath))
