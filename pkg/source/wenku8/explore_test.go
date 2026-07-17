@@ -92,3 +92,20 @@ func TestExtractBookCards(t *testing.T) {
 		t.Errorf("expected 3 tags, got %d", len(card.Tags))
 	}
 }
+
+func TestDefaultPublishers(t *testing.T) {
+	src := &Wenku8Source{}
+	pubs := src.GetPublishers()
+	if len(pubs) != 14 {
+		t.Fatalf("expected 14 publishers, got %d", len(pubs))
+	}
+	if pubs[0].ClassID != 1 || pubs[0].Name != "电击文库" {
+		t.Errorf("expected class 1 to be 电击文库, got %+v", pubs[0])
+	}
+	if pubs[2].ClassID != 3 || pubs[2].Name != "角川文库" {
+		t.Errorf("expected class 3 to be 角川文库, got %+v", pubs[2])
+	}
+	if pubs[13].ClassID != 14 || pubs[13].Name != "游戏剧本" {
+		t.Errorf("expected class 14 to be 游戏剧本, got %+v", pubs[13])
+	}
+}

@@ -34,6 +34,12 @@ var ToplistNameMap = map[ToplistType]string{
 	ToplistCompleted:  "完结全本",
 }
 
+// PublisherInfo defines publishing house metadata.
+type PublisherInfo struct {
+	ClassID int    `json:"class_id"`
+	Name    string `json:"name"`
+}
+
 // DataSource provides an abstract interface to fetch light novel resources.
 type DataSource interface {
 	// Name returns the identifier of the data source (e.g. "wenku8")
@@ -59,4 +65,10 @@ type DataSource interface {
 
 	// GetTagBooks searches books tagged with the specified tag.
 	GetTagBooks(ctx context.Context, tag string, page int) ([]model.BookSummary, int, error)
+
+	// GetPublishers returns the supported publishing houses / libraries.
+	GetPublishers() []PublisherInfo
+
+	// GetPublisherBooks searches novels under a specific publishing house / library.
+	GetPublisherBooks(ctx context.Context, classID int, page int) ([]model.BookSummary, int, error)
 }

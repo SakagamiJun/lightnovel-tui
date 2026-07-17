@@ -35,6 +35,10 @@ func (m *mockUpdateSource) GetTags() []string { return nil }
 func (m *mockUpdateSource) GetTagBooks(ctx context.Context, tag string, page int) ([]model.BookSummary, int, error) {
 	return nil, 0, nil
 }
+func (m *mockUpdateSource) GetPublishers() []source.PublisherInfo { return nil }
+func (m *mockUpdateSource) GetPublisherBooks(ctx context.Context, classID int, page int) ([]model.BookSummary, int, error) {
+	return nil, 0, nil
+}
 
 func TestSortBooks(t *testing.T) {
 	tmpDir := t.TempDir()

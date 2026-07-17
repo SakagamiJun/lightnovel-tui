@@ -443,8 +443,26 @@ func TestExploreViewModeToggle(t *testing.T) {
 
 	// View output should contain mode titles and badges
 	out := ev.View()
-	if !strings.Contains(out, "[热门榜]") || !strings.Contains(out, "[动画化]") {
-		t.Errorf("expected view to contain explore badges, got: %s", out)
+	if !strings.Contains(out, "[热门榜]") || !strings.Contains(out, "[动画化]") || !strings.Contains(out, "[文库分类]") {
+		t.Errorf("expected view to contain explore badges including [文库分类], got: %s", out)
+	}
+
+	// Switch to SubTabPublishers
+	ev.subTab = SubTabPublishers
+	ev.pubIndex = 0
+	outPub := ev.View()
+	if !strings.Contains(outPub, "电击文库") {
+		t.Errorf("expected view to display 电击文库, got: %s", outPub)
+	}
+
+	// Press 't' to cycle to next publisher
+	ev.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if ev.pubIndex != 1 {
+		t.Errorf("expected pubIndex 1 after 't', got %d", ev.pubIndex)
+	}
+	outPub2 := ev.View()
+	if !strings.Contains(outPub2, "富士见文库") {
+		t.Errorf("expected view to display 富士见文库, got: %s", outPub2)
 	}
 }
 

@@ -252,7 +252,9 @@ func startExportWithOptionsTask(src source.DataSource, store *storage.Storage, b
 			return
 		}
 
-		if len(outFiles) == 1 {
+		if opt.SplitVolumes {
+			ch <- fmt.Sprintf("[完成] 成功导出全部分卷 EPUB (共 %d 卷) 到目录: %s", len(outFiles), exportDir)
+		} else if len(outFiles) == 1 {
 			ch <- fmt.Sprintf("[完成] 成功导出 EPUB: %s", outFiles[0])
 		} else {
 			ch <- fmt.Sprintf("[完成] 成功导出全部分卷 EPUB (共 %d 卷) 到目录: %s", len(outFiles), exportDir)

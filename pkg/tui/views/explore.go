@@ -26,6 +26,7 @@ const (
 	SubTabPostDate
 	SubTabCompleted
 	SubTabTags
+	SubTabPublishers
 )
 
 var defaultExploreTags = []string{
@@ -44,6 +45,7 @@ var defaultExploreTags = []string{
 type exploreResultMsg struct {
 	subTab     ExploreSubTab
 	tag        string
+	publisher  source.PublisherInfo
 	results    []model.BookSummary
 	totalPages int
 	page       int
@@ -57,6 +59,8 @@ type ExploreView struct {
 	subTab     ExploreSubTab
 	tags       []string
 	tagIndex   int
+	publishers []source.PublisherInfo
+	pubIndex   int
 	results    []model.BookSummary
 	cursor     int
 	offset     int
@@ -74,10 +78,30 @@ type ExploreView struct {
 // NewExploreView creates a new explore and toplists view.
 func NewExploreView(src source.DataSource, store *storage.Storage, onSelect func(bookID string) tea.Cmd) *ExploreView {
 	tags := defaultExploreTags
+	publishers := make([]source.PublisherInfo, 0)
 	if src != nil {
 		srcTags := src.GetTags()
 		if len(srcTags) > 0 {
 			tags = srcTags
+		}
+		publishers = src.GetPublishers()
+	}
+	if len(publishers) == 0 {
+		publishers = []source.PublisherInfo{
+			{ClassID: 1, Name: "电击文库"},
+			{ClassID: 2, Name: "富士见文库"},
+			{ClassID: 3, Name: "角川文库"},
+			{ClassID: 4, Name: "MF文库J"},
+			{ClassID: 5, Name: "Fami通文库"},
+			{ClassID: 6, Name: "GA文库"},
+			{ClassID: 7, Name: "HJ文库"},
+			{ClassID: 8, Name: "一迅社"},
+			{ClassID: 9, Name: "集英社"},
+			{ClassID: 10, Name: "小学馆"},
+			{ClassID: 11, Name: "讲谈社"},
+			{ClassID: 12, Name: "少女文库"},
+			{ClassID: 13, Name: "其他文库"},
+			{ClassID: 14, Name: "游戏剧本"},
 		}
 	}
 
@@ -87,6 +111,8 @@ func NewExploreView(src source.DataSource, store *storage.Storage, onSelect func
 		subTab:     SubTabHot,
 		tags:       tags,
 		tagIndex:   0,
+		publishers: publishers,
+		pubIndex:   0,
 		results:    make([]model.BookSummary, 0),
 		page:       1,
 		totalPages: 1,
@@ -144,6 +170,14 @@ func (v *ExploreView) fetchCmd(tab ExploreSubTab, page int) tea.Cmd {
 		currentTag = v.tags[v.tagIndex]
 	}
 
+	var currentPub source.PublisherInfo
+	if tab == SubTabPublishers && len(v.publishers) > 0 {
+		if v.pubIndex < 0 || v.pubIndex >= len(v.publishers) {
+			v.pubIndex = 0
+		}
+		currentPub = v.publishers[v.pubIndex]
+	}
+
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -165,11 +199,14 @@ func (v *ExploreView) fetchCmd(tab ExploreSubTab, page int) tea.Cmd {
 			res, total, err = v.src.GetToplist(ctx, source.ToplistCompleted, page)
 		case SubTabTags:
 			res, total, err = v.src.GetTagBooks(ctx, currentTag, page)
+		case SubTabPublishers:
+			res, total, err = v.src.GetPublisherBooks(ctx, currentPub.ClassID, page)
 		}
 
 		return exploreResultMsg{
 			subTab:     tab,
 			tag:        currentTag,
+			publisher:  currentPub,
 			results:    res,
 			totalPages: total,
 			page:       page,
@@ -255,7 +292,7 @@ func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 				return v, v.fetchCmd(v.subTab, 1)
 			}
 		case "right", "l":
-			if v.subTab < SubTabTags {
+			if v.subTab < SubTabPublishers {
 				v.subTab++
 				v.page = 1
 				return v, v.fetchCmd(v.subTab, 1)
@@ -265,9 +302,13 @@ func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 				v.tagIndex = (v.tagIndex + 1) % len(v.tags)
 				v.page = 1
 				return v, v.fetchCmd(v.subTab, 1)
+			} else if v.subTab == SubTabPublishers && len(v.publishers) > 0 {
+				v.pubIndex = (v.pubIndex + 1) % len(v.publishers)
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
 			} else {
-				// Quick cycle tabs
-				v.subTab = (v.subTab + 1) % 6
+				// Quick cycle tabs (0..6)
+				v.subTab = (v.subTab + 1) % 7
 				v.page = 1
 				return v, v.fetchCmd(v.subTab, 1)
 			}
@@ -276,8 +317,12 @@ func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 				v.tagIndex = (v.tagIndex - 1 + len(v.tags)) % len(v.tags)
 				v.page = 1
 				return v, v.fetchCmd(v.subTab, 1)
+			} else if v.subTab == SubTabPublishers && len(v.publishers) > 0 {
+				v.pubIndex = (v.pubIndex - 1 + len(v.publishers)) % len(v.publishers)
+				v.page = 1
+				return v, v.fetchCmd(v.subTab, 1)
 			} else {
-				v.subTab = (v.subTab - 1 + 6) % 6
+				v.subTab = (v.subTab - 1 + 7) % 7
 				v.page = 1
 				return v, v.fetchCmd(v.subTab, 1)
 			}
@@ -390,6 +435,7 @@ func (v *ExploreView) View() string {
 		{SubTabPostDate, "新书榜"},
 		{SubTabCompleted, "完结全本"},
 		{SubTabTags, "题材分类"},
+		{SubTabPublishers, "文库分类"},
 	}
 
 	var badges []string
@@ -399,7 +445,6 @@ func (v *ExploreView) View() string {
 				Bold(true).
 				Foreground(theme.TextWhite).
 				Background(theme.PrimaryColor).
-				Padding(0, 1).
 				Render(fmt.Sprintf("[%s]", item.label)))
 		} else {
 			badges = append(badges, lipgloss.NewStyle().
@@ -407,7 +452,12 @@ func (v *ExploreView) View() string {
 				Render(fmt.Sprintf("[%s]", item.label)))
 		}
 	}
-	topBar := " 榜单类型: " + strings.Join(badges, " ") + lipgloss.NewStyle().Foreground(theme.TextDim).Render("  (按 [←/→] 或 [h/l] 切换)")
+	var topBar string
+	if maxWidth >= 96 {
+		topBar = " 榜单类型: " + strings.Join(badges, " ") + lipgloss.NewStyle().Foreground(theme.TextDim).Render("  (按 [←/→] 切换)")
+	} else {
+		topBar = " 榜单: " + strings.Join(badges, " ")
+	}
 	sb.WriteString(runewidth.Truncate(topBar, maxWidth, "...") + "\n")
 
 	// Line 3: Description & category details
@@ -430,6 +480,13 @@ func (v *ExploreView) View() string {
 		}
 		detailText = fmt.Sprintf("当前题材: [%s] (第 %d/%d 个)  •  按 [t/T] 轮换分类题材  •  按 [r] 刷新",
 			currentTag, v.tagIndex+1, len(v.tags))
+	case SubTabPublishers:
+		currentPub := "电击文库"
+		if len(v.publishers) > 0 && v.pubIndex < len(v.publishers) {
+			currentPub = v.publishers[v.pubIndex].Name
+		}
+		detailText = fmt.Sprintf("当前文库: [%s] (第 %d/%d 个)  •  按 [t/T] 轮换各大著名文库  •  按 [r] 刷新",
+			currentPub, v.pubIndex+1, len(v.publishers))
 	}
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
 		Render(runewidth.Truncate(" "+detailText, maxWidth, "...")) + "\n")

@@ -937,7 +937,79 @@ func main() {
 
 	ruleCmd.AddCommand(ruleListCmd, ruleAddCmd, ruleToggleCmd, ruleDeleteCmd)
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, updateCmd, cleanCmd, ruleCmd)
+	// 13. publisher command
+	publisherCmd := &cobra.Command{
+		Use:   "publisher [class_id | list]",
+		Short: "按出版社/文库维度精细淘书",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pubs := src.GetPublishers()
+
+			if len(args) == 0 || args[0] == "list" {
+				fmt.Printf("\n[文库淘书] Wenku8 官方收录文库一览 (共 %d 家):\n", len(pubs))
+				fmt.Println(strings.Repeat("-", 70))
+				for _, p := range pubs {
+					fmt.Printf("  [%2d] %-14s", p.ClassID, p.Name)
+					if p.ClassID%4 == 0 {
+						fmt.Println()
+					}
+				}
+				if len(pubs)%4 != 0 {
+					fmt.Println()
+				}
+				fmt.Println(strings.Repeat("-", 70))
+				fmt.Println("使用 'lnr publisher <文库ID或名称>' 浏览指定文库小说 (例如: lnr publisher 1)")
+				return nil
+			}
+
+			targetStr := args[0]
+			var targetClassID int
+			var targetName string
+
+			for _, p := range pubs {
+				if fmt.Sprintf("%d", p.ClassID) == targetStr || p.Name == targetStr {
+					targetClassID = p.ClassID
+					targetName = p.Name
+					break
+				}
+			}
+			if targetClassID == 0 {
+				return fmt.Errorf("未找到文库 '%s'，请运行 'lnr publisher list' 查看所有文库列表", targetStr)
+			}
+
+			page, _ := cmd.Flags().GetInt("page")
+			if page < 1 {
+				page = 1
+			}
+
+			fmt.Printf("[淘书] 正在浏览文库「%s」(ID: %d，第 %d 页)...\n", targetName, targetClassID, page)
+			results, totalPages, err := src.GetPublisherBooks(context.Background(), targetClassID, page)
+			if err != nil {
+				return fmt.Errorf("获取文库小说失败: %w", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Printf("文库「%s」暂无书籍数据。\n", targetName)
+				return nil
+			}
+
+			fmt.Printf("\n文库「%s」共检索到 %d 本小说 (当前第 %d/%d 页):\n", targetName, len(results), page, totalPages)
+			fmt.Println(strings.Repeat("-", 80))
+			for i, book := range results {
+				status := "连载中"
+				if book.IsComplete {
+					status = "已完结"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
+			}
+			fmt.Println(strings.Repeat("-", 80))
+			fmt.Println("使用 'lnr info <ID>' 查看详情，使用 'lnr download <ID>' 下载")
+			return nil
+		},
+	}
+	publisherCmd.Flags().IntP("page", "p", 1, "文库列表分页页码")
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, publisherCmd, updateCmd, cleanCmd, ruleCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
