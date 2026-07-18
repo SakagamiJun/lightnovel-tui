@@ -2,9 +2,16 @@ package theme
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
+
+func init() {
+	runewidth.DefaultCondition.EastAsianWidth = true
+}
 
 var (
 	// Modern Vibrant & High-Contrast Colors (Linear / Tailwind Inspired)
@@ -208,4 +215,32 @@ func GetReaderTheme(id ReaderThemeID) ReaderTheme {
 		return ReaderThemes[id]
 	}
 	return ReaderThemes[ReaderThemeDark]
+}
+
+// CleanDescription normalizes novel synopsis text by removing carriage returns,
+// newlines, full-width ideographic indentation spaces (\u3000), and collapsing
+// multiple whitespace runs into single spaces.
+func CleanDescription(desc string) string {
+	desc = strings.ReplaceAll(desc, "\r", " ")
+	desc = strings.ReplaceAll(desc, "\n", " ")
+	desc = strings.ReplaceAll(desc, "\u3000", " ")
+	fields := strings.Fields(desc)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
+}
+
+// TruncateANSI truncates a string that may contain ANSI escape sequences to the specified
+// visual column budget, cleanly appending tail without breaking ANSI codes.
+func TruncateANSI(s string, maxWidth int, tail string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	return ansi.Truncate(s, maxWidth, tail)
+}
+
+// StringWidth returns the visual cell width of a string considering ANSI escape sequences.
+func StringWidth(s string) int {
+	return ansi.StringWidth(s)
 }

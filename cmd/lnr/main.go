@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"lnr-core/pkg/downloader"
 	"lnr-core/pkg/epub"
@@ -18,6 +19,10 @@ import (
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/text"
 )
+
+func init() {
+	runewidth.DefaultCondition.EastAsianWidth = true
+}
 
 var (
 	cacheDir string

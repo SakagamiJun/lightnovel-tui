@@ -2,3 +2,6 @@ bin/
 *.epub
 cache/
 .DS_Store
+/lnr
+/lnr-tui
+
