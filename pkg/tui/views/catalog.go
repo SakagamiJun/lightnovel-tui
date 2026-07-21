@@ -542,10 +542,16 @@ func (v *CatalogView) View() string {
 		if selCount > 0 {
 			selInfo = fmt.Sprintf("  •  已勾选 %d 卷", selCount)
 		}
-		headerText := fmt.Sprintf(" %s%s  •  [%d/%d 项]  •  [Enter] 阅读  •  [Space] 勾选分卷  •  [E] 导出选项",
-			v.detail.Title, selInfo, curPos, total)
+		var headerText string
+		if maxWidth >= 90 {
+			headerText = fmt.Sprintf(" %s%s  •  [%d/%d 项]  •  [Enter] 阅读  •  [Space] 勾选分卷  •  [E] 导出选项",
+				v.detail.Title, selInfo, curPos, total)
+		} else {
+			headerText = fmt.Sprintf(" %s%s  •  [%d/%d]  •  [Enter]阅读  •  [Space]勾选  •  [E]导出",
+				v.detail.Title, selInfo, curPos, total)
+		}
 		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
-			Render(runewidth.Truncate(headerText, maxWidth, "..."))
+			Render(theme.TruncateANSI(headerText, maxWidth, "..."))
 		sb.WriteString(header + "\n")
 	}
 
@@ -560,7 +566,7 @@ func (v *CatalogView) View() string {
 	// Top indicator if truncated
 	if start > 0 {
 		msg := fmt.Sprintf("  ▲ 上方还有 %d 项已折叠 (按 [g] 到顶部) ", start)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -585,25 +591,25 @@ func (v *CatalogView) View() string {
 			}
 			volBadge := theme.BadgeInfo.Render("分卷")
 			volText := fmt.Sprintf(" %s [分卷] %s %s ", checkBadge, item.volTitle, volBadge)
-			ruleLen := maxWidth - runewidth.StringWidth(volText)
+			ruleLen := maxWidth - theme.StringWidth(volText)
 			if ruleLen < 0 {
 				ruleLen = 0
 			}
 			volLine := volText + strings.Repeat("─", ruleLen)
-			volLineTrunc := runewidth.Truncate(volLine, maxWidth, "...")
+			volLineTrunc := theme.TruncateANSI(volLine, maxWidth, "...")
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).
 				Render(volLineTrunc))
 			sb.WriteString("\n")
 		} else {
 			if isSelected {
 				prefix := "  ▎ ▶ "
-				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
+				line := theme.TruncateANSI(prefix+item.title, maxWidth, "...")
 				sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).
 					Background(theme.HighlightBg).Width(maxWidth).Render(line))
 				sb.WriteString("\n")
 			} else {
 				prefix := "    │ "
-				line := runewidth.Truncate(prefix+item.title, maxWidth, "...")
+				line := theme.TruncateANSI(prefix+item.title, maxWidth, "...")
 				sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextWhite).
 					Width(maxWidth).Render(line))
 				sb.WriteString("\n")

@@ -455,10 +455,12 @@ func (v *ExploreView) View() string {
 	var topBar string
 	if maxWidth >= 96 {
 		topBar = " 榜单类型: " + strings.Join(badges, " ") + lipgloss.NewStyle().Foreground(theme.TextDim).Render("  (按 [←/→] 切换)")
-	} else {
+	} else if maxWidth >= 75 {
 		topBar = " 榜单: " + strings.Join(badges, " ")
+	} else {
+		topBar = strings.Join(badges, " ")
 	}
-	sb.WriteString(runewidth.Truncate(topBar, maxWidth, "...") + "\n")
+	sb.WriteString(theme.TruncateANSI(topBar, maxWidth, "...") + "\n")
 
 	// Line 3: Description & category details
 	var detailText string
@@ -489,7 +491,7 @@ func (v *ExploreView) View() string {
 			currentPub, v.pubIndex+1, len(v.publishers))
 	}
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
-		Render(runewidth.Truncate(" "+detailText, maxWidth, "...")) + "\n")
+		Render(theme.TruncateANSI(" "+detailText, maxWidth, "...")) + "\n")
 
 	// Loading state
 	if v.loading {
@@ -561,9 +563,7 @@ func (v *ExploreView) View() string {
 			line1Badges = theme.BadgeSuccess.Render("完结")
 		}
 
-		desc := strings.ReplaceAll(b.Description, "\r", " ")
-		desc = strings.ReplaceAll(desc, "\n", " ")
-		desc = strings.TrimSpace(desc)
+		desc := theme.CleanDescription(b.Description)
 		if desc == "" {
 			desc = "暂无简介"
 		}
@@ -593,7 +593,7 @@ func (v *ExploreView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -606,15 +606,24 @@ func (v *ExploreView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
-			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
@@ -635,7 +644,7 @@ func (v *ExploreView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -648,15 +657,24 @@ func (v *ExploreView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
-			// Line 2: Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")

@@ -710,9 +710,9 @@ func (v *SettingsView) View() string {
 			}
 
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).
-				Render(runewidth.Truncate(line1Text, maxWidth, "..."))
+				Render(theme.TruncateANSI(line1Text, maxWidth, "..."))
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Background(theme.HighlightBg).Width(maxWidth).
-				Render(runewidth.Truncate(line2Text, maxWidth, "..."))
+				Render(theme.TruncateANSI(line2Text, maxWidth, "..."))
 
 			sb.WriteString(line1 + "\n")
 			sb.WriteString(line2 + "\n")
@@ -723,11 +723,11 @@ func (v *SettingsView) View() string {
 				item.badge,
 				lipgloss.NewStyle().Foreground(theme.TextMuted).Render(item.value))
 			line1 := lipgloss.NewStyle().Width(maxWidth).
-				Render(runewidth.Truncate(line1Text, maxWidth, "..."))
+				Render(theme.TruncateANSI(line1Text, maxWidth, "..."))
 
 			line2Text := fmt.Sprintf("%s%s", barInactive, item.desc)
 			line2 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).
-				Render(runewidth.Truncate(line2Text, maxWidth, "..."))
+				Render(theme.TruncateANSI(line2Text, maxWidth, "..."))
 
 			sb.WriteString(line1 + "\n")
 			sb.WriteString(line2 + "\n")

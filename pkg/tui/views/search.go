@@ -339,9 +339,14 @@ func (v *SearchView) View() string {
 	}
 
 	// Line 2: Tips
-	tips := lipgloss.NewStyle().Foreground(theme.AccentSky).
-		Render(" 检索提示: 输入书名或作者名检索轻小说 (按 [Enter] 开始检索，按 [↓] 浏览结果)")
-	sb.WriteString(runewidth.Truncate(tips, maxWidth, "...") + "\n")
+	var tipsText string
+	if maxWidth >= 75 {
+		tipsText = " 检索提示: 输入书名或作者名检索轻小说 (按 [Enter] 开始检索，按 [↓] 浏览结果)"
+	} else {
+		tipsText = " 检索提示: 输入书名或作者名检索 (按 [Enter] 检索)"
+	}
+	sb.WriteString(lipgloss.NewStyle().Foreground(theme.AccentSky).
+		Render(theme.TruncateANSI(tipsText, maxWidth, "...")) + "\n")
 
 	// Line 3: Input bar
 	inputBar := lipgloss.NewStyle().
@@ -420,9 +425,7 @@ func (v *SearchView) View() string {
 			line1Badges = theme.BadgeSuccess.Render("完结")
 		}
 
-		desc := strings.ReplaceAll(b.Description, "\r", " ")
-		desc = strings.ReplaceAll(desc, "\n", " ")
-		desc = strings.TrimSpace(desc)
+		desc := theme.CleanDescription(b.Description)
 		if desc == "" {
 			desc = "暂无简介"
 		}
@@ -452,7 +455,7 @@ func (v *SearchView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -465,15 +468,24 @@ func (v *SearchView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Rich Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
@@ -494,7 +506,7 @@ func (v *SearchView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -507,15 +519,24 @@ func (v *SearchView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Rich Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")

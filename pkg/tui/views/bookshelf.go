@@ -625,17 +625,26 @@ func (v *BookshelfView) View() string {
 	if v.confirmDelete && v.cursor < len(v.books) {
 		delPrompt := fmt.Sprintf(" [确认删除] 确认删除《%s》本地缓存？按 [y] 确认 / 按 [n/Esc] 取消", v.books[v.cursor].Title)
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.AccentRose).
-			Render(runewidth.Truncate(delPrompt, maxWidth, "..."))
+			Render(theme.TruncateANSI(delPrompt, maxWidth, "..."))
 	} else {
 		sortName := storage.SortCriteriaNames[v.sortCriteria]
 		var updateStatus string
 		if v.checkingUpdates {
 			updateStatus = " • [检查中...]"
 		}
-		titleText := fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [g/G]分组 • [m]移组 • [s]统计 • [c]续读 • [排序: %s(o)] • [u]更新 • [p]置顶 • [x]删除%s",
-			curPos, len(v.books), sortName, updateStatus)
+		var titleText string
+		if maxWidth >= 105 {
+			titleText = fmt.Sprintf(" 本地藏书库 (%d/%d 本) • [g/G]分组 • [m]移组 • [s]统计 • [c]续读 • [排序: %s(o)] • [u]更新 • [p]置顶 • [x]删除%s",
+				curPos, len(v.books), sortName, updateStatus)
+		} else if maxWidth >= 80 {
+			titleText = fmt.Sprintf(" 本地藏书库 (%d/%d) • [g/G]分组 • [m]移组 • [c]续读 • [排序: %s(o)] • [u]更新 • [p]置顶%s",
+				curPos, len(v.books), sortName, updateStatus)
+		} else {
+			titleText = fmt.Sprintf(" 本地藏书库 (%d/%d) • [%s] • [g/G]分组 • [m]移组%s",
+				curPos, len(v.books), sortName, updateStatus)
+		}
 		titleBar = lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryColor).
-			Render(runewidth.Truncate(titleText, maxWidth, "..."))
+			Render(theme.TruncateANSI(titleText, maxWidth, "..."))
 	}
 	sb.WriteString(titleBar + "\n")
 
@@ -673,9 +682,14 @@ func (v *BookshelfView) View() string {
 					Render(label))
 			}
 		}
-		groupsBar := " 分组: " + strings.Join(shelfTabs, " ") + "  " +
-			lipgloss.NewStyle().Foreground(theme.TextDim).Render("(按 [g/G] 快速轮换)")
-		sb.WriteString(runewidth.Truncate(groupsBar, maxWidth, "...") + "\n")
+		var groupsBar string
+		if maxWidth >= 85 {
+			groupsBar = " 分组: " + strings.Join(shelfTabs, " ") + "  " +
+				lipgloss.NewStyle().Foreground(theme.TextDim).Render("(按 [g/G] 快速轮换)")
+		} else {
+			groupsBar = " 分组: " + strings.Join(shelfTabs, " ")
+		}
+		sb.WriteString(theme.TruncateANSI(groupsBar, maxWidth, "...") + "\n")
 	}
 
 	if len(v.books) == 0 {
@@ -761,9 +775,7 @@ func (v *BookshelfView) View() string {
 		}
 		line1Badges = strings.Join(badges, " ")
 
-		desc := strings.ReplaceAll(b.Description, "\r", " ")
-		desc = strings.ReplaceAll(desc, "\n", " ")
-		desc = strings.TrimSpace(desc)
+		desc := theme.CleanDescription(b.Description)
 		if desc == "" {
 			desc = "已缓存到本地，按 [Enter] 查看分卷目录"
 		}
@@ -793,7 +805,7 @@ func (v *BookshelfView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -806,15 +818,24 @@ func (v *BookshelfView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Rich Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
@@ -835,7 +856,7 @@ func (v *BookshelfView) View() string {
 			}
 			titleTrunc := b.Title
 			if runewidth.StringWidth(b.Title) > titleBudget {
-				titleTrunc = runewidth.Truncate(b.Title, titleBudget, "...")
+				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
 			if line1Badges != "" {
@@ -848,15 +869,24 @@ func (v *BookshelfView) View() string {
 			}
 			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
 
-			// Line 2: Rich Meta Info
-			metaContent := fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
-				barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			line2Trunc := runewidth.Truncate(metaContent, maxWidth, "...")
+			// Line 2: Rich Meta Info (Adaptive Spacing)
+			var metaContent string
+			if maxWidth >= 100 {
+				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else if maxWidth >= 80 {
+				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
+			} else {
+				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
+					barInactive, b.Author, pubStr, wordCountStr, statusStr)
+			}
+			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
 			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
-			descTrunc := runewidth.Truncate(descContent, maxWidth, "...")
+			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
 			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
