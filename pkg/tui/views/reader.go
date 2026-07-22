@@ -3,6 +3,10 @@ package views
 import (
 	"context"
 	"fmt"
+	stdimage "image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"strings"
 	"time"
@@ -26,7 +30,9 @@ type chapterContentLoadedMsg struct {
 type illustrationLoadedMsg struct {
 	index    int
 	path     string
-	rendered string
+	width    int
+	height   int
+	fileSize int64
 	err      error
 }
 
@@ -50,8 +56,10 @@ type ReaderView struct {
 	imageIndex     int
 	imageLoading   bool
 	imagePath      string
+	imageWidth     int
+	imageHeight    int
+	imageSize      int64
 	imageErr       error
-	imageViewport  viewport.Model
 
 	// Reader color theme preset
 	themeIndex int
@@ -113,22 +121,9 @@ func (v *ReaderView) SetSize(width, height int) {
 		v.viewport.Width = width
 		v.viewport.Height = height - 2
 	}
-
-	if v.showImageModal {
-		modalW := width - 6
-		if modalW < 20 {
-			modalW = 20
-		}
-		modalH := height - 6
-		if modalH < 10 {
-			modalH = 10
-		}
-		v.imageViewport.Width = modalW
-		v.imageViewport.Height = modalH - 3
-	}
 }
 
-// loadImageCmd fetches and renders the illustration at specified index.
+// loadImageCmd fetches illustration metadata and ensures it is downloaded.
 func (v *ReaderView) loadImageCmd(index int) tea.Cmd {
 	return func() tea.Msg {
 		if v.reader == nil {
@@ -151,29 +146,26 @@ func (v *ReaderView) loadImageCmd(index int) tea.Cmd {
 			}
 		}
 
-		// Calculate available modal viewport dimensions
-		renderW := v.width - 10
-		if renderW < 20 {
-			renderW = 20
+		var imgW, imgH int
+		var fileSize int64
+		if fi, err := os.Stat(localPath); err == nil {
+			fileSize = fi.Size()
 		}
-		// Unclamp vertical height: viewport allows vertical scrolling with j/k/arrows,
-		// so allocating up to 120 character rows (240 vertical half-block pixels) produces
-		// 8x higher resolution than squishing down to 14 terminal lines.
-		renderH := 120
-		if v.height*2 > renderH {
-			renderH = v.height * 2
-		}
-
-		// Render with auto terminal protocol (iTerm2, Kitty, or 24-bit TrueColor half-block)
-		rendered, err := termimage.RenderAutoFile(localPath, renderW, renderH)
-		if err != nil {
-			return illustrationLoadedMsg{index: index, err: fmt.Errorf("渲染插图失败: %w", err)}
+		if f, err := os.Open(localPath); err == nil {
+			cfg, _, err := stdimage.DecodeConfig(f)
+			_ = f.Close()
+			if err == nil {
+				imgW = cfg.Width
+				imgH = cfg.Height
+			}
 		}
 
 		return illustrationLoadedMsg{
 			index:    index,
 			path:     localPath,
-			rendered: rendered,
+			width:    imgW,
+			height:   imgH,
+			fileSize: fileSize,
 		}
 	}
 }
@@ -226,10 +218,9 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			v.imageLoading = false
 			v.imageErr = msg.err
 			v.imagePath = msg.path
-			if msg.err == nil {
-				v.imageViewport.SetContent(msg.rendered)
-				v.imageViewport.GotoTop()
-			}
+			v.imageWidth = msg.width
+			v.imageHeight = msg.height
+			v.imageSize = msg.fileSize
 		}
 		return v, nil
 
@@ -237,10 +228,10 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		// Modal interaction when viewing illustration
 		if v.showImageModal {
 			switch msg.String() {
-			case "esc", "i", "I":
+			case "esc", "i", "I", "q":
 				v.showImageModal = false
 				return v, nil
-			case "left", "h", "[", "p":
+			case "left", "h", "[", "p", "up", "k":
 				if v.reader != nil && v.imageIndex > 0 {
 					v.imageIndex--
 					v.imageLoading = true
@@ -248,7 +239,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 					return v, v.loadImageCmd(v.imageIndex)
 				}
 				return v, nil
-			case "right", "l", "]", "n":
+			case "right", "l", "]", "n", "down", "j":
 				if v.reader != nil && v.imageIndex < len(v.reader.Illustrations())-1 {
 					v.imageIndex++
 					v.imageLoading = true
@@ -262,9 +253,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 				}
 				return v, nil
 			default:
-				var ivCmd tea.Cmd
-				v.imageViewport, ivCmd = v.imageViewport.Update(msg)
-				return v, ivCmd
+				return v, nil
 			}
 		}
 
@@ -276,16 +265,6 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 				v.imageIndex = 0
 				v.imageLoading = true
 				v.imageErr = nil
-
-				modalW := v.width - 6
-				if modalW < 20 {
-					modalW = 20
-				}
-				modalH := v.height - 6
-				if modalH < 10 {
-					modalH = 10
-				}
-				v.imageViewport = viewport.New(modalW, modalH-3)
 				return v, v.loadImageCmd(v.imageIndex)
 			}
 
@@ -466,8 +445,11 @@ func (v *ReaderView) View() string {
 
 func (v *ReaderView) renderImageModal() string {
 	modalW := v.width - 6
-	if modalW < 20 {
-		modalW = 20
+	if modalW > 74 {
+		modalW = 74
+	}
+	if modalW < 36 {
+		modalW = 36
 	}
 
 	totalImages := 0
@@ -489,32 +471,68 @@ func (v *ReaderView) renderImageModal() string {
 	header := fmt.Sprintf(" %s %s  %s",
 		titleStyle.Render("[插图查看器]"),
 		counterStyle.Render(fmt.Sprintf("[%d/%d]", v.imageIndex+1, totalImages)),
-		hintStyle.Render("• [Enter/o] 高清预览(QuickLook) • [←/→] 翻页 • [j/k] 滚动 • [Esc/i] 关闭"),
+		hintStyle.Render("• [Enter/o] 高清预览 • [←/→] 翻页 • [Esc/i] 关闭"),
 	)
+	headerTrunc := theme.TruncateANSI(header, modalW-2, "...")
+	divider := lipgloss.NewStyle().Foreground(theme.PrimaryColor).Render(strings.Repeat("─", modalW-2))
 
 	var body string
 	if v.imageLoading {
 		body = lipgloss.NewStyle().
 			Foreground(theme.TextMuted).
-			Padding(2, 4).
-			Render("[加载中] 正在拉取并渲染插图，请稍候...")
+			Padding(1, 2).
+			Render("[加载中] 正在拉取插图数据，请稍候...")
 	} else if v.imageErr != nil {
 		body = lipgloss.NewStyle().
 			Foreground(theme.AccentRose).
-			Padding(2, 4).
+			Padding(1, 2).
 			Render(fmt.Sprintf("[错误] 插图加载失败: %v\n按 [Esc] 返回阅读", v.imageErr))
 	} else {
-		body = v.imageViewport.View()
+		var specStr string
+		if v.imageWidth > 0 && v.imageHeight > 0 {
+			specStr = fmt.Sprintf("%d × %d 像素 (原生高清插画)", v.imageWidth, v.imageHeight)
+		} else {
+			specStr = "高清插画文件"
+		}
+
+		sizeStr := "已下载"
+		if v.imageSize > 0 {
+			if v.imageSize >= 1024*1024 {
+				sizeStr = fmt.Sprintf("%.2f MB", float64(v.imageSize)/(1024*1024))
+			} else {
+				sizeStr = fmt.Sprintf("%.1f KB", float64(v.imageSize)/1024)
+			}
+		}
+
+		labelStyle := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Bold(true)
+		valueStyle := lipgloss.NewStyle().Foreground(theme.TextWhite)
+		statusStyle := lipgloss.NewStyle().Foreground(theme.AccentEmerald).Bold(true)
+
+		infoLines := []string{
+			fmt.Sprintf("  %s %s", labelStyle.Render("插图序号:"), valueStyle.Render(fmt.Sprintf("第 %d / %d 张插图", v.imageIndex+1, totalImages))),
+			fmt.Sprintf("  %s %s", labelStyle.Render("图片规格:"), valueStyle.Render(specStr)),
+			fmt.Sprintf("  %s %s", labelStyle.Render("文件大小:"), valueStyle.Render(sizeStr)),
+			fmt.Sprintf("  %s %s", labelStyle.Render("本地缓存:"), statusStyle.Render("已就绪 (按回车即刻秒级调出系统预览)")),
+			"",
+			lipgloss.NewStyle().Foreground(theme.BorderColor).Render("  " + strings.Repeat("┄", modalW-6)),
+			"",
+			lipgloss.NewStyle().Foreground(theme.AccentAmber).Bold(true).Render("  操作指南:"),
+			lipgloss.NewStyle().Foreground(theme.TextMuted).Render("  • 按 [Enter] / [Space] / [o] 立即调出系统原生高清预览"),
+			lipgloss.NewStyle().Foreground(theme.TextDim).Render("    (macOS 原生 Quick Look 秒级弹出，Retina 缩放与全屏)"),
+			lipgloss.NewStyle().Foreground(theme.TextMuted).Render("  • 按 [← / →] 或 [h / l] 切换上一张 / 下一张插图"),
+			lipgloss.NewStyle().Foreground(theme.TextMuted).Render("  • 按 [Esc] 或 [i] 关闭插图查看器，返回沉浸阅读"),
+		}
+		body = strings.Join(infoLines, "\n")
 	}
 
-	divider := lipgloss.NewStyle().Foreground(theme.PrimaryColor).Render(strings.Repeat("─", modalW))
-	modalContent := header + "\n" + divider + "\n" + body
+	modalContent := headerTrunc + "\n" + divider + "\n" + body
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.PrimaryColor).
 		Width(modalW).
+		Padding(0, 1).
 		Render(modalContent)
 
-	return box
+	return lipgloss.Place(v.width, v.height, lipgloss.Center, lipgloss.Center, box)
 }
