@@ -11,6 +11,7 @@ import (
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
+	"lnr-core/pkg/tui/theme"
 )
 
 func TestCatalogWindowing(t *testing.T) {
@@ -907,5 +908,133 @@ func TestCatalogVolumeSelectionAndExportModal(t *testing.T) {
 	}
 	if !exportedOpt.NoImages {
 		t.Errorf("expected NoImages to be true")
+	}
+}
+
+func TestBookshelfGroupsAndExploreTabsNotTruncated(t *testing.T) {
+	// 1. Bookshelf groups at 80 and 100 width: verify all 4 groups are displayed
+	bv := &BookshelfView{
+		width:   80,
+		height:  24,
+		shelves: storage.DefaultBookshelves,
+		loaded:  true,
+	}
+	bOut80 := bv.View()
+	for _, expectedGroup := range []string{"全部", "在读", "已完结", "精选收藏"} {
+		if !strings.Contains(bOut80, expectedGroup) {
+			t.Errorf("expected bookshelf at width 80 to contain group %q, got output:\n%s", expectedGroup, bOut80)
+		}
+	}
+
+	bv.width = 100
+	bOut100 := bv.View()
+	for _, expectedGroup := range []string{"全部", "在读", "已完结", "精选收藏"} {
+		if !strings.Contains(bOut100, expectedGroup) {
+			t.Errorf("expected bookshelf at width 100 to contain group %q, got output:\n%s", expectedGroup, bOut100)
+		}
+	}
+
+	// 2. Explore ranking subtabs at width 80 and 100: verify all 7 categories are displayed
+	ev := &ExploreView{
+		width:  80,
+		height: 24,
+		subTab: SubTabHot,
+	}
+	eOut80 := ev.View()
+	for _, expectedTab := range []string{"热门榜", "动画化", "今日更新", "新书榜", "完结全本", "题材分类", "文库分类"} {
+		if !strings.Contains(eOut80, expectedTab) {
+			t.Errorf("expected explore at width 80 to contain tab %q, got output:\n%s", expectedTab, eOut80)
+		}
+	}
+
+	ev.width = 100
+	eOut100 := ev.View()
+	for _, expectedTab := range []string{"热门榜", "动画化", "今日更新", "新书榜", "完结全本", "题材分类", "文库分类"} {
+		if !strings.Contains(eOut100, expectedTab) {
+			t.Errorf("expected explore at width 100 to contain tab %q, got output:\n%s", expectedTab, eOut100)
+		}
+	}
+}
+
+func TestCJKDescriptionConsistencyAndSanitization(t *testing.T) {
+	rawDesc := "\u3000\u3000圣玛格诺利亚共和国日复一日遭受邻国「帝国」的无人机「军团」侵略国土。\n\u3000\u3000是的——表面上确实如此……实际上“毫无伤亡”当然是谎言。"
+	cleaned := theme.CleanDescription(rawDesc)
+	if strings.Contains(cleaned, "\u3000") || strings.Contains(cleaned, "\n") {
+		t.Errorf("CleanDescription failed to remove fullwidth spaces and newlines: %q", cleaned)
+	}
+
+	book := model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:          "1001",
+			Title:       "86-不存在的战区-",
+			Author:      "安里アサト",
+			Publisher:   "电击文库",
+			Description: rawDesc,
+		},
+	}
+
+	for _, w := range []int{80, 100, 120} {
+		bv := &BookshelfView{
+			width:   w,
+			height:  24,
+			shelves: storage.DefaultBookshelves,
+			books:   []model.BookDetail{book},
+			loaded:  true,
+		}
+		bOut := bv.View()
+
+		sv := &SearchView{
+			width:   w,
+			height:  24,
+			results: []model.BookSummary{book.BookSummary},
+		}
+		sv.input.Blur()
+		sOut := sv.View()
+
+		ev := &ExploreView{
+			width:   w,
+			height:  24,
+			results: []model.BookSummary{book.BookSummary},
+		}
+		eOut := ev.View()
+
+		// Verify all 3 views rendered the cleaned description prefix without line wrapping
+		expectedPrefix := "圣玛格诺利亚共和国"
+		if !strings.Contains(bOut, expectedPrefix) {
+			t.Errorf("bookshelf at width %d missing expected prefix %s", w, expectedPrefix)
+		}
+		if !strings.Contains(sOut, expectedPrefix) {
+			t.Errorf("search at width %d missing expected prefix %s", w, expectedPrefix)
+		}
+		if !strings.Contains(eOut, expectedPrefix) {
+			t.Errorf("explore at width %d missing expected prefix %s", w, expectedPrefix)
+		}
+	}
+}
+
+func TestIllustrationModalCenterAndMetadata(t *testing.T) {
+	rv := &ReaderView{
+		width:          80,
+		height:         24,
+		showImageModal: true,
+		imageIndex:     0,
+		imagePath:      "/tmp/mock_illu.jpg",
+		imageWidth:     1200,
+		imageHeight:    1800,
+		imageSize:      256 * 1024,
+	}
+
+	out := rv.renderImageModal()
+	if !strings.Contains(out, "[插图查看器]") {
+		t.Errorf("expected modal to contain '[插图查看器]'")
+	}
+	if !strings.Contains(out, "1200 × 1800 像素") {
+		t.Errorf("expected modal to contain image dimensions, got: %s", out)
+	}
+	if !strings.Contains(out, "256.0 KB") {
+		t.Errorf("expected modal to contain image size, got: %s", out)
+	}
+	if !strings.Contains(out, "Quick Look") {
+		t.Errorf("expected modal to mention Quick Look, got: %s", out)
 	}
 }
