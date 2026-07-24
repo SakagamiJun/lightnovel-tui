@@ -71,4 +71,7 @@ type DataSource interface {
 
 	// GetPublisherBooks searches novels under a specific publishing house / library.
 	GetPublisherBooks(ctx context.Context, classID int, page int) ([]model.BookSummary, int, error)
+
+	// EnrichDescriptions enhances novel summaries with full descriptions if available.
+	EnrichDescriptions(ctx context.Context, books []model.BookSummary, maxWorkers int) []model.BookSummary
 }

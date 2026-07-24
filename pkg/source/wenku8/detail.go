@@ -83,6 +83,9 @@ func (s *Wenku8Source) GetBookDetail(ctx context.Context, bookID string) (*model
 	}
 
 	desc := strings.TrimSpace(secondTable.Find("tr td:nth-child(2) span:nth-of-type(6)").Text())
+	if desc != "" {
+		s.SetCachedDescription(bookID, desc)
+	}
 
 	return &model.BookDetail{
 		BookSummary: model.BookSummary{

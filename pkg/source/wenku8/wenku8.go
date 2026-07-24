@@ -30,6 +30,7 @@ type Wenku8Source struct {
 	host       string
 	searchLock sync.Mutex
 	lastSearch time.Time
+	descCache  sync.Map // bookID -> string (full description)
 }
 
 // NewWenku8Source constructs a Wenku8 data source.
@@ -125,7 +126,7 @@ func (s *Wenku8Source) Search(ctx context.Context, searchType source.SearchType,
 
 	// Top-level item cards in search result
 	doc.Find("#content table.grid tr td > div").Each(func(i int, sel *goquery.Selection) {
-		summary := parseBookCard(sel)
+		summary := s.parseBookCard(sel)
 		if summary != nil && !seen[summary.ID] {
 			seen[summary.ID] = true
 			results = append(results, *summary)
@@ -135,7 +136,88 @@ func (s *Wenku8Source) Search(ctx context.Context, searchType source.SearchType,
 	return results, totalPages, nil
 }
 
-func parseBookCard(sel *goquery.Selection) *model.BookSummary {
+// GetCachedDescription retrieves the cached full description for a novel, if available.
+func (s *Wenku8Source) GetCachedDescription(bookID string) (string, bool) {
+	if s == nil || bookID == "" {
+		return "", false
+	}
+	if val, ok := s.descCache.Load(bookID); ok {
+		if desc, ok := val.(string); ok && desc != "" {
+			return desc, true
+		}
+	}
+	return "", false
+}
+
+// SetCachedDescription caches the full description for a novel.
+func (s *Wenku8Source) SetCachedDescription(bookID, desc string) {
+	if s != nil && bookID != "" && desc != "" {
+		s.descCache.Store(bookID, desc)
+	}
+}
+
+// EnrichDescriptions enhances novel summaries with full descriptions by consulting
+// in-memory cache first, and concurrently fetching book detail for incomplete synopses.
+func (s *Wenku8Source) EnrichDescriptions(ctx context.Context, books []model.BookSummary, maxWorkers int) []model.BookSummary {
+	if s == nil || len(books) == 0 {
+		return books
+	}
+	if maxWorkers <= 0 {
+		maxWorkers = 6
+	}
+
+	enriched := make([]model.BookSummary, len(books))
+	copy(enriched, books)
+
+	type fetchTask struct {
+		index  int
+		bookID string
+	}
+	var tasks []fetchTask
+
+	for i := range enriched {
+		b := &enriched[i]
+		if cached, ok := s.GetCachedDescription(b.ID); ok && cached != "" {
+			b.Description = cached
+			continue
+		}
+		clean := strings.TrimSpace(b.Description)
+		if clean == "" || strings.HasSuffix(clean, "…") || strings.HasSuffix(clean, "...") || strings.HasSuffix(clean, "─…") || len([]rune(clean)) <= 60 {
+			tasks = append(tasks, fetchTask{index: i, bookID: b.ID})
+		}
+	}
+
+	if len(tasks) == 0 {
+		return enriched
+	}
+
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+
+	for _, t := range tasks {
+		wg.Add(1)
+		go func(task fetchTask) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			detail, err := s.GetBookDetail(ctx, task.bookID)
+			if err == nil && detail != nil && detail.Description != "" {
+				s.SetCachedDescription(task.bookID, detail.Description)
+				enriched[task.index].Description = detail.Description
+			}
+		}(t)
+	}
+
+	wg.Wait()
+	return enriched
+}
+
+func (s *Wenku8Source) parseBookCard(sel *goquery.Selection) *model.BookSummary {
 	linkSel := sel.Find("div:first-child a")
 	if linkSel.Length() == 0 {
 		return nil
@@ -209,15 +291,34 @@ func parseBookCard(sel *goquery.Selection) *model.BookSummary {
 	}
 
 	var tags []string
-	rawTags := sel.Find("div:last-child p:nth-of-type(3) span").Text()
-	if rawTags != "" {
-		tags = strings.Fields(strings.TrimSpace(rawTags))
+	desc := ""
+
+	sel.Find("div:last-child p").Each(func(_ int, p *goquery.Selection) {
+		text := strings.TrimSpace(p.Text())
+		if strings.HasPrefix(text, "简介:") || strings.HasPrefix(text, "简介：") {
+			desc = strings.TrimPrefix(text, "简介:")
+			desc = strings.TrimPrefix(desc, "简介：")
+			desc = strings.TrimSpace(desc)
+		} else if strings.HasPrefix(text, "Tags:") || strings.HasPrefix(text, "Tags：") || p.Find("span").Length() > 0 {
+			rawSpan := p.Find("span").Text()
+			if rawSpan != "" {
+				tags = strings.Fields(strings.TrimSpace(rawSpan))
+			}
+		}
+	})
+
+	if desc == "" {
+		desc = sel.Find("div:last-child p:nth-of-type(4)").Text()
+		desc = strings.TrimPrefix(desc, "简介:")
+		desc = strings.TrimPrefix(desc, "简介：")
+		desc = strings.TrimSpace(desc)
 	}
 
-	desc := sel.Find("div:last-child p:nth-of-type(4)").Text()
-	desc = strings.TrimPrefix(desc, "简介:")
-	desc = strings.TrimPrefix(desc, "简介：")
-	desc = strings.TrimSpace(desc)
+	if s != nil {
+		if cachedDesc, ok := s.GetCachedDescription(id); ok && cachedDesc != "" {
+			desc = cachedDesc
+		}
+	}
 
 	return &model.BookSummary{
 		ID:          id,
@@ -232,4 +333,9 @@ func parseBookCard(sel *goquery.Selection) *model.BookSummary {
 		LastUpdated: lastUpdated,
 		IsComplete:  isComplete,
 	}
+}
+
+func parseBookCard(sel *goquery.Selection) *model.BookSummary {
+	var src *Wenku8Source
+	return src.parseBookCard(sel)
 }

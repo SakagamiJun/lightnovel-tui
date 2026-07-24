@@ -39,6 +39,9 @@ func (m *mockUpdateSource) GetPublishers() []source.PublisherInfo { return nil }
 func (m *mockUpdateSource) GetPublisherBooks(ctx context.Context, classID int, page int) ([]model.BookSummary, int, error) {
 	return nil, 0, nil
 }
+func (m *mockUpdateSource) EnrichDescriptions(ctx context.Context, books []model.BookSummary, maxWorkers int) []model.BookSummary {
+	return books
+}
 
 func TestSortBooks(t *testing.T) {
 	tmpDir := t.TempDir()

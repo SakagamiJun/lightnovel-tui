@@ -53,7 +53,7 @@ func (s *Wenku8Source) GetPublisherBooks(ctx context.Context, classID int, page 
 	}
 
 	totalPages := extractPagination(doc)
-	results := extractBookCards(doc)
+	results := s.extractBookCards(doc)
 
 	return results, totalPages, nil
 }

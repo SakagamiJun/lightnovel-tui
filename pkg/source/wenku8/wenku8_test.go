@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 )
 
@@ -50,5 +51,25 @@ func TestWenku8SearchAndDetail(t *testing.T) {
 	t.Logf("Catalog volumes count: %d", len(catalog.Volumes))
 	if len(catalog.Volumes) > 0 {
 		t.Logf("First volume: %s with %d chapters", catalog.Volumes[0].Title, len(catalog.Volumes[0].Chapters))
+	}
+}
+
+func TestWenku8DescriptionCachingAndEnrichment(t *testing.T) {
+	src := &Wenku8Source{}
+
+	// Test caching
+	src.SetCachedDescription("9999", "这是完整的测试小说简介，描述丰富，情节生动。")
+	desc, ok := src.GetCachedDescription("9999")
+	if !ok || desc != "这是完整的测试小说简介，描述丰富，情节生动。" {
+		t.Fatalf("expected cached description, got %q, ok=%v", desc, ok)
+	}
+
+	// Test enriching from cache
+	summaries := []model.BookSummary{
+		{ID: "9999", Title: "测试书籍", Description: "这是简略..."},
+	}
+	enriched := src.EnrichDescriptions(context.Background(), summaries, 2)
+	if enriched[0].Description != "这是完整的测试小说简介，描述丰富，情节生动。" {
+		t.Errorf("expected enriched full description, got %q", enriched[0].Description)
 	}
 }

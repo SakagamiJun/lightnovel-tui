@@ -58,7 +58,7 @@ func (s *Wenku8Source) GetToplist(ctx context.Context, tType source.ToplistType,
 	}
 
 	totalPages := extractPagination(doc)
-	results := extractBookCards(doc)
+	results := s.extractBookCards(doc)
 
 	return results, totalPages, nil
 }
@@ -87,7 +87,7 @@ func (s *Wenku8Source) GetTagBooks(ctx context.Context, tag string, page int) ([
 	}
 
 	totalPages := extractPagination(doc)
-	results := extractBookCards(doc)
+	results := s.extractBookCards(doc)
 
 	return results, totalPages, nil
 }
@@ -106,16 +106,21 @@ func extractPagination(doc *goquery.Document) int {
 	return totalPages
 }
 
-func extractBookCards(doc *goquery.Document) []model.BookSummary {
+func (s *Wenku8Source) extractBookCards(doc *goquery.Document) []model.BookSummary {
 	var results []model.BookSummary
 	seen := make(map[string]bool)
 
 	doc.Find("#content table tr td > div, #content table.grid tr td > div").Each(func(i int, sel *goquery.Selection) {
-		summary := parseBookCard(sel)
+		summary := s.parseBookCard(sel)
 		if summary != nil && !seen[summary.ID] {
 			seen[summary.ID] = true
 			results = append(results, *summary)
 		}
 	})
 	return results
+}
+
+func extractBookCards(doc *goquery.Document) []model.BookSummary {
+	var src *Wenku8Source
+	return src.extractBookCards(doc)
 }
