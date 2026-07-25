@@ -79,7 +79,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		return startExportTask(src, store, bookID, volumeIndex, m.settingsView.ExportDir())
 	})
 
-	m.searchView = views.NewSearchView(src, func(bookID string) tea.Cmd {
+	m.searchView = views.NewSearchView(src, store, func(bookID string) tea.Cmd {
 		m.prevMainView = common.ViewSearch
 		m.currentView = common.ViewCatalog
 		return m.catalogView.LoadBook(bookID)

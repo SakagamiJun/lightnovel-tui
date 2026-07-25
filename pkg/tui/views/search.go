@@ -9,23 +9,32 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
+
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
+	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
 )
 
 type searchResultMsg struct {
+	query      string
 	results    []model.BookSummary
 	totalPages int
 	page       int
 	err        error
 }
 
+type searchDescEnrichedMsg struct {
+	query string
+	page  int
+	items map[string]string
+}
+
 // SearchView handles interactive search with textinput.
 type SearchView struct {
 	src        source.DataSource
+	store      *storage.Storage
 	input      textinput.Model
 	results    []model.BookSummary
 	cursor     int
@@ -42,7 +51,7 @@ type SearchView struct {
 }
 
 // NewSearchView creates an interactive search view.
-func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) *SearchView {
+func NewSearchView(src source.DataSource, store *storage.Storage, onSelect func(bookID string) tea.Cmd) *SearchView {
 	ti := textinput.New()
 	ti.Placeholder = "输入书名或作者名，按 [Enter] 开始检索..."
 	ti.Focus()
@@ -55,6 +64,7 @@ func NewSearchView(src source.DataSource, onSelect func(bookID string) tea.Cmd) 
 
 	return &SearchView{
 		src:        src,
+		store:      store,
 		input:      ti,
 		results:    make([]model.BookSummary, 0),
 		page:       1,
@@ -143,6 +153,57 @@ func (v *SearchView) adjustOffset() {
 	}
 }
 
+func (v *SearchView) quickFillFromStore() {
+	if v.store == nil {
+		return
+	}
+	for i := range v.results {
+		b := &v.results[i]
+		clean := strings.TrimSpace(b.Description)
+		if clean == "" || strings.HasSuffix(clean, "…") || strings.HasSuffix(clean, "...") || strings.HasSuffix(clean, "─…") || len([]rune(clean)) <= 60 {
+			if detail, err := v.store.LoadBookDetail(b.ID); err == nil && detail != nil && detail.Description != "" {
+				b.Description = detail.Description
+			}
+		}
+	}
+}
+
+func (v *SearchView) enrichDescriptionsCmd(query string, page int, books []model.BookSummary) tea.Cmd {
+	if v.src == nil || len(books) == 0 {
+		return nil
+	}
+
+	booksCopy := make([]model.BookSummary, len(books))
+	copy(booksCopy, books)
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		enriched := v.src.EnrichDescriptions(ctx, booksCopy, 6)
+		items := make(map[string]string, len(enriched))
+		for _, b := range enriched {
+			if b.Description != "" {
+				items[b.ID] = b.Description
+				if v.store != nil {
+					// Persist if full detail already in store or save
+					if detail, err := v.store.LoadBookDetail(b.ID); err == nil && detail != nil {
+						if detail.Description == "" {
+							detail.Description = b.Description
+							_ = v.store.SaveBookDetail(detail)
+						}
+					}
+				}
+			}
+		}
+		return searchDescEnrichedMsg{
+			query: query,
+			page:  page,
+			items: items,
+		}
+	}
+}
+
 // Update handles input events in SearchView.
 func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -158,6 +219,19 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 		v.offset = 0
 		if len(msg.results) > 0 {
 			v.input.Blur()
+			v.quickFillFromStore()
+			return v, v.enrichDescriptionsCmd(msg.query, msg.page, v.results)
+		}
+		return v, nil
+
+	case searchDescEnrichedMsg:
+		currQuery := strings.TrimSpace(v.input.Value())
+		if msg.query == currQuery && msg.page == v.page {
+			for i := range v.results {
+				if fullDesc, ok := msg.items[v.results[i].ID]; ok && fullDesc != "" {
+					v.results[i].Description = fullDesc
+				}
+			}
 		}
 		return v, nil
 
@@ -198,10 +272,10 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 					defer cancel()
 					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: 1, err: nil}
+						return searchResultMsg{query: query, results: nil, totalPages: 1, page: 1, err: nil}
 					}
 					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, 1)
-					return searchResultMsg{results: res, totalPages: total, page: 1, err: err}
+					return searchResultMsg{query: query, results: res, totalPages: total, page: 1, err: err}
 				}
 			} else if !v.input.Focused() && len(v.results) > 0 && v.cursor < len(v.results) {
 				selectedID := v.results[v.cursor].ID
@@ -224,10 +298,10 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 					defer cancel()
 					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: v.page, err: nil}
+						return searchResultMsg{query: query, results: nil, totalPages: 1, page: v.page, err: nil}
 					}
 					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
-					return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
+					return searchResultMsg{query: query, results: res, totalPages: total, page: v.page, err: err}
 				}
 			}
 		case "]", "n":
@@ -238,10 +312,10 @@ func (v *SearchView) Update(msg tea.Msg) (*SearchView, tea.Cmd) {
 					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 					defer cancel()
 					if v.src == nil {
-						return searchResultMsg{results: nil, totalPages: 1, page: v.page, err: nil}
+						return searchResultMsg{query: query, results: nil, totalPages: 1, page: v.page, err: nil}
 					}
 					res, total, err := v.src.Search(ctx, source.SearchTypeTitle, query, v.page)
-					return searchResultMsg{results: res, totalPages: total, page: v.page, err: err}
+					return searchResultMsg{query: query, results: res, totalPages: total, page: v.page, err: err}
 				}
 			}
 
@@ -386,7 +460,7 @@ func (v *SearchView) View() string {
 	statsText := fmt.Sprintf(" %s共 %d 本  •  当前 [%d/%d]  •  [Enter] 目录  •  %s",
 		pageStr, len(v.results), curPos, len(v.results), focusHint)
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
-		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
+		Render(theme.TruncateANSI(statsText, maxWidth, "...")) + "\n")
 
 	v.adjustOffset()
 	visible := v.visibleCards()
@@ -399,7 +473,7 @@ func (v *SearchView) View() string {
 	// Line 5: Top fold indicator (strictly 1 line)
 	if start > 0 {
 		msg := fmt.Sprintf("  ▲ 上方还有 %d 部小说已折叠 (向上滚动查看) ", start)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -454,7 +528,7 @@ func (v *SearchView) View() string {
 				titleBudget = 10
 			}
 			titleTrunc := b.Title
-			if runewidth.StringWidth(b.Title) > titleBudget {
+			if theme.StringWidth(b.Title) > titleBudget {
 				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
@@ -505,7 +579,7 @@ func (v *SearchView) View() string {
 				titleBudget = 10
 			}
 			titleTrunc := b.Title
-			if runewidth.StringWidth(b.Title) > titleBudget {
+			if theme.StringWidth(b.Title) > titleBudget {
 				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
@@ -549,7 +623,7 @@ func (v *SearchView) View() string {
 	if end < len(v.results) {
 		remaining := len(v.results) - end
 		msg := fmt.Sprintf("  ▼ 下方还有 %d 部小说已折叠 (向下滚动查看) ", remaining)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -557,7 +631,7 @@ func (v *SearchView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		msg := fmt.Sprintf("  [全部] 已显示全部 %d 部搜索结果 ", len(v.results))
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}

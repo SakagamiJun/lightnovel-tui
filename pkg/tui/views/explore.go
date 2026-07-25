@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
+
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 	"lnr-core/pkg/storage"
@@ -50,6 +50,12 @@ type exploreResultMsg struct {
 	totalPages int
 	page       int
 	err        error
+}
+
+type exploreDescEnrichedMsg struct {
+	subTab ExploreSubTab
+	page   int
+	items  map[string]string
 }
 
 // ExploreView displays online leaderboards and categorized tags.
@@ -255,6 +261,56 @@ func (v *ExploreView) adjustOffset() {
 	}
 }
 
+func (v *ExploreView) quickFillFromStore() {
+	if v.store == nil {
+		return
+	}
+	for i := range v.results {
+		b := &v.results[i]
+		clean := strings.TrimSpace(b.Description)
+		if clean == "" || strings.HasSuffix(clean, "…") || strings.HasSuffix(clean, "...") || strings.HasSuffix(clean, "─…") || len([]rune(clean)) <= 60 {
+			if detail, err := v.store.LoadBookDetail(b.ID); err == nil && detail != nil && detail.Description != "" {
+				b.Description = detail.Description
+			}
+		}
+	}
+}
+
+func (v *ExploreView) enrichDescriptionsCmd(subTab ExploreSubTab, page int, books []model.BookSummary) tea.Cmd {
+	if v.src == nil || len(books) == 0 {
+		return nil
+	}
+
+	booksCopy := make([]model.BookSummary, len(books))
+	copy(booksCopy, books)
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		enriched := v.src.EnrichDescriptions(ctx, booksCopy, 6)
+		items := make(map[string]string, len(enriched))
+		for _, b := range enriched {
+			if b.Description != "" {
+				items[b.ID] = b.Description
+				if v.store != nil {
+					if detail, err := v.store.LoadBookDetail(b.ID); err == nil && detail != nil {
+						if detail.Description == "" {
+							detail.Description = b.Description
+							_ = v.store.SaveBookDetail(detail)
+						}
+					}
+				}
+			}
+		}
+		return exploreDescEnrichedMsg{
+			subTab: subTab,
+			page:   page,
+			items:  items,
+		}
+	}
+}
+
 // Update handles user interaction in ExploreView.
 func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -266,6 +322,20 @@ func (v *ExploreView) Update(msg tea.Msg) (*ExploreView, tea.Cmd) {
 		v.err = msg.err
 		v.cursor = 0
 		v.offset = 0
+		if len(msg.results) > 0 {
+			v.quickFillFromStore()
+			return v, v.enrichDescriptionsCmd(msg.subTab, msg.page, v.results)
+		}
+		return v, nil
+
+	case exploreDescEnrichedMsg:
+		if msg.subTab == v.subTab && msg.page == v.page {
+			for i := range v.results {
+				if fullDesc, ok := msg.items[v.results[i].ID]; ok && fullDesc != "" {
+					v.results[i].Description = fullDesc
+				}
+			}
+		}
 		return v, nil
 
 	case tea.MouseMsg:
@@ -523,7 +593,7 @@ func (v *ExploreView) View() string {
 	statsText := fmt.Sprintf(" %s共 %d 本  •  当前 [%d/%d]  •  [Enter] 目录  •  [d] 下载  •  [e] 导出",
 		pageStr, len(v.results), curPos, len(v.results))
 	sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryLight).
-		Render(runewidth.Truncate(statsText, maxWidth, "...")) + "\n")
+		Render(theme.TruncateANSI(statsText, maxWidth, "...")) + "\n")
 
 	v.adjustOffset()
 	visible := v.visibleCards()
@@ -536,7 +606,7 @@ func (v *ExploreView) View() string {
 	// Line 5: Top fold indicator (strictly 1 line)
 	if start > 0 {
 		msg := fmt.Sprintf("  ▲ 上方还有 %d 部小说已折叠 (向上滚动查看) ", start)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -592,7 +662,7 @@ func (v *ExploreView) View() string {
 				titleBudget = 10
 			}
 			titleTrunc := b.Title
-			if runewidth.StringWidth(b.Title) > titleBudget {
+			if theme.StringWidth(b.Title) > titleBudget {
 				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
@@ -643,7 +713,7 @@ func (v *ExploreView) View() string {
 				titleBudget = 10
 			}
 			titleTrunc := b.Title
-			if runewidth.StringWidth(b.Title) > titleBudget {
+			if theme.StringWidth(b.Title) > titleBudget {
 				titleTrunc = theme.TruncateANSI(b.Title, titleBudget, "...")
 			}
 			var line1Content string
@@ -687,7 +757,7 @@ func (v *ExploreView) View() string {
 	if end < len(v.results) {
 		remaining := len(v.results) - end
 		msg := fmt.Sprintf("  ▼ 下方还有 %d 部小说已折叠 (向下滚动查看) ", remaining)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -695,7 +765,7 @@ func (v *ExploreView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		msg := fmt.Sprintf("  [全部] 已显示全部 %d 部作品 ", len(v.results))
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := maxWidth - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
