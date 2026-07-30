@@ -1038,3 +1038,107 @@ func TestIllustrationModalCenterAndMetadata(t *testing.T) {
 		t.Errorf("expected modal to mention Quick Look, got: %s", out)
 	}
 }
+
+func TestExploreAndSearchDescriptionEnrichment(t *testing.T) {
+	shortDesc := "真正的实力、平等究竟为何？几乎百分之百实现升学、就业目标的全国首屈一指的名校─…"
+	fullDesc := "真正的实力、平等究竟为何？几乎百分之百实现升学、就业目标的全国首屈一指的名校──高度育成高中。这所梦想般的学校，却根据实力将学生分为A到D班。"
+
+	book := model.BookSummary{
+		ID:          "1973",
+		Title:       "欢迎来到实力至上主义的教室",
+		Author:      "衣笠彰梧",
+		Publisher:   "MF文库J",
+		Description: shortDesc,
+	}
+
+	// 1. Test ExploreView enrichment
+	ev := &ExploreView{
+		width:   120,
+		height:  24,
+		subTab:  SubTabHot,
+		page:    1,
+		results: []model.BookSummary{book},
+	}
+
+	// Before enrichment: should contain shortDesc prefix and not fullDesc continuation
+	outBefore := ev.View()
+	if strings.Contains(outBefore, "高度育成高中") {
+		t.Errorf("expected output before enrichment not to contain full continuation")
+	}
+
+	// Dispatch enrichment msg
+	enrichedMsg := exploreDescEnrichedMsg{
+		subTab: SubTabHot,
+		page:   1,
+		items:  map[string]string{"1973": fullDesc},
+	}
+	ev, _ = ev.Update(enrichedMsg)
+
+	if ev.results[0].Description != fullDesc {
+		t.Errorf("expected explore results[0].Description to be updated, got %q", ev.results[0].Description)
+	}
+
+	outAfter := ev.View()
+	if !strings.Contains(outAfter, "高度育成高中") {
+		t.Errorf("expected explore view at width 120 to contain '高度育成高中', got output:\n%s", outAfter)
+	}
+
+	// 2. Test SearchView enrichment
+	sv := &SearchView{
+		width:   120,
+		height:  24,
+		page:    1,
+		results: []model.BookSummary{book},
+	}
+	sv.input.SetValue("实力至上")
+	sv.input.Blur()
+
+	// Dispatch search enrichment msg
+	searchEnrichMsg := searchDescEnrichedMsg{
+		query: "实力至上",
+		page:  1,
+		items: map[string]string{"1973": fullDesc},
+	}
+	sv, _ = sv.Update(searchEnrichMsg)
+
+	if sv.results[0].Description != fullDesc {
+		t.Errorf("expected search results[0].Description to be updated, got %q", sv.results[0].Description)
+	}
+
+	sOutAfter := sv.View()
+	if !strings.Contains(sOutAfter, "高度育成高中") {
+		t.Errorf("expected search view at width 120 to contain '高度育成高中', got output:\n%s", sOutAfter)
+	}
+
+	// 3. Test quickFillFromStore
+	tmpDir := t.TempDir()
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	_ = store.SaveBookDetail(&model.BookDetail{
+		BookSummary: model.BookSummary{
+			ID:          "1973",
+			Title:       "欢迎来到实力至上主义的教室",
+			Description: fullDesc,
+		},
+	})
+
+	svWithStore := &SearchView{
+		store:   store,
+		results: []model.BookSummary{book},
+	}
+	svWithStore.quickFillFromStore()
+	if svWithStore.results[0].Description != fullDesc {
+		t.Errorf("expected quickFillFromStore to populate full description from store")
+	}
+
+	evWithStore := &ExploreView{
+		store:   store,
+		results: []model.BookSummary{book},
+	}
+	evWithStore.quickFillFromStore()
+	if evWithStore.results[0].Description != fullDesc {
+		t.Errorf("expected quickFillFromStore to populate full description in explore from store")
+	}
+}
