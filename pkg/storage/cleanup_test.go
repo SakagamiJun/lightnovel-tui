@@ -27,8 +27,10 @@ func TestStorageBreakdownAndCleanup(t *testing.T) {
 	bookID := "8888"
 	// Save book detail and chapter
 	detail := &model.BookDetail{
-		ID:    bookID,
-		Title: "测试轻小说",
+		BookSummary: model.BookSummary{
+			ID:    bookID,
+			Title: "测试轻小说",
+		},
 	}
 	if err := store.SaveBookDetail(detail); err != nil {
 		t.Fatalf("SaveBookDetail failed: %v", err)
