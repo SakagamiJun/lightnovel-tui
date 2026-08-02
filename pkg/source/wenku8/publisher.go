@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PuerkitoBio/goquery"
+
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
 )

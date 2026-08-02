@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	termimage "lnr-core/pkg/image"
 	"lnr-core/pkg/reader"
 	"lnr-core/pkg/source"

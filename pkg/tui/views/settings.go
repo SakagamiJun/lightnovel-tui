@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/text"
 	"lnr-core/pkg/tui/common"

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+
 	"lnr-core/pkg/model"
 )
 

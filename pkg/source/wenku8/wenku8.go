@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+
 	"lnr-core/internal/client"
 	"lnr-core/internal/encoding"
 	"lnr-core/pkg/model"

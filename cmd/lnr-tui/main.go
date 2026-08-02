@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
+
 	"lnr-core/pkg/source/wenku8"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui"

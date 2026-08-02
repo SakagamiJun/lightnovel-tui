@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+
 	"lnr-core/pkg/epub"
 	"lnr-core/pkg/model"
 	"lnr-core/pkg/source"
