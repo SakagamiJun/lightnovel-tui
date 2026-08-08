@@ -1,11 +1,13 @@
 package views
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +18,7 @@ import (
 	"lnr-core/pkg/text"
 	"lnr-core/pkg/tui/common"
 	"lnr-core/pkg/tui/theme"
+	"lnr-core/pkg/version"
 )
 
 // AppConfig represents persisted user preferences.
@@ -428,7 +431,7 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				v.cursor--
 			}
 		case "down", "j":
-			if v.cursor < 8 {
+			if v.cursor < 9 {
 				v.cursor++
 			}
 		case "enter", " ":
@@ -515,6 +518,27 @@ func (v *SettingsView) Update(msg tea.Msg) (*SettingsView, tea.Cmd) {
 				v.rulesCursor = 0
 				v.showingRules = true
 				return v, nil
+
+			case 9: // Program version and check update
+				info := version.GetBuildInfo()
+				currentVer := version.GetVersion()
+				return v, tea.Batch(
+					func() tea.Msg {
+						return common.StatusMsg(fmt.Sprintf("[版本] %s (正在检测更新...)", info))
+					},
+					func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						rel, err := version.CheckLatestRelease(ctx)
+						if err != nil {
+							return common.StatusMsg(fmt.Sprintf("[版本] %s (检测更新失败: %v)", info, err))
+						}
+						if rel.HasUpdate {
+							return common.StatusMsg(fmt.Sprintf("[更新提示] 发现新版本 %s (当前: %s)，可通过 'brew upgrade lnr' 获取更新", rel.TagName, currentVer))
+						}
+						return common.StatusMsg(fmt.Sprintf("[版本] 当前已是最新版本 (%s)", currentVer))
+					},
+				)
 			}
 		case "r":
 			return v, v.RecalculateCacheSizeCmd()
@@ -653,6 +677,12 @@ func (v *SettingsView) View() string {
 			value: fmt.Sprintf("已配置 %d 条规则", len(v.rules)),
 			badge: theme.BadgeInfo.Render("按Enter管理"),
 			desc:  "按 [Enter] 查看并开关省略号/破折号/广告过滤规则",
+		},
+		{
+			label: "程序版本与环境",
+			value: version.GetBuildInfo(),
+			badge: theme.BadgeInfo.Render(version.GetVersion()),
+			desc:  "按 [Enter] 在线检查 GitHub 最新版本更新，查看构建哈希与架构",
 		},
 	}
 

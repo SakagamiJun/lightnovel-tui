@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"lnr-core/pkg/source/wenku8"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/text"
+	"lnr-core/pkg/version"
 )
 
 func init() {
@@ -33,8 +35,9 @@ var (
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "lnr",
-		Short: "LightNovelReader CLI - 轻小说阅读与下载工具",
+		Use:     "lnr",
+		Short:   "LightNovelReader CLI - 轻小说阅读与下载工具",
+		Version: version.GetVersion(),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			store, err = storage.NewStorage(cacheDir)
@@ -1015,7 +1018,57 @@ func main() {
 	}
 	publisherCmd.Flags().IntP("page", "p", 1, "文库列表分页页码")
 
-	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, publisherCmd, updateCmd, cleanCmd, ruleCmd)
+	// 14. version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "查看详细版本与构建信息",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("LightNovelReader CLI (lnr)\n")
+			fmt.Printf("版本:     %s\n", version.GetVersion())
+			fmt.Printf("构建信息: %s\n", version.GetBuildInfo())
+			fmt.Printf("运行时:   %s (%s/%s)\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		},
+	}
+
+	// 15. completion command
+	completionCmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "生成指定 Shell 的自动补全脚本",
+		Long: `为指定的 Shell 生成自动补全脚本。
+
+示例:
+  # Bash:
+  $ source <(lnr completion bash)
+
+  # Zsh:
+  $ source <(lnr completion zsh)
+
+  # Fish:
+  $ lnr completion fish | source
+
+  # PowerShell:
+  PS> lnr completion powershell | Out-String | Invoke-Expression
+`,
+		DisableFlagsInUseLine: true,
+		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return rootCmd.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return rootCmd.GenZshCompletion(os.Stdout)
+			case "fish":
+				return rootCmd.GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+			default:
+				return fmt.Errorf("不支持的 shell: %s", args[0])
+			}
+		},
+	}
+
+	rootCmd.AddCommand(searchCmd, infoCmd, downloadCmd, exportCmd, coverCmd, imageCmd, topCmd, tagsCmd, tagCmd, publisherCmd, updateCmd, cleanCmd, ruleCmd, versionCmd, completionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

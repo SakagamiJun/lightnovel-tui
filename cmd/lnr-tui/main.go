@@ -11,6 +11,7 @@ import (
 	"lnr-core/pkg/source/wenku8"
 	"lnr-core/pkg/storage"
 	"lnr-core/pkg/tui"
+	"lnr-core/pkg/version"
 )
 
 func init() {
@@ -18,9 +19,21 @@ func init() {
 }
 
 func main() {
-	var cacheDir string
+	var (
+		cacheDir    string
+		showVersion bool
+	)
 	flag.StringVar(&cacheDir, "cache-dir", "", "本地缓存目录 (默认为 ~/.lnr/cache)")
+	flag.BoolVar(&showVersion, "v", false, "显示版本信息")
+	flag.BoolVar(&showVersion, "version", false, "显示版本信息")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("LightNovelReader TUI (lnr-tui)\n")
+		fmt.Printf("版本:     %s\n", version.GetVersion())
+		fmt.Printf("构建信息: %s\n", version.GetBuildInfo())
+		return
+	}
 
 	store, err := storage.NewStorage(cacheDir)
 	if err != nil {

@@ -736,6 +736,42 @@ func TestSettingsRulesManagement(t *testing.T) {
 	}
 }
 
+func TestSettingsVersionItem(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-settings-version-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sv := NewSettingsView(store)
+	sv.SetSize(100, 30)
+
+	// Move cursor down to item 9 (version item)
+	for i := 0; i < 9; i++ {
+		sv.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if sv.Cursor() != 9 {
+		t.Fatalf("expected cursor at 9, got %d", sv.Cursor())
+	}
+
+	// View should render version item label
+	viewStr := sv.View()
+	if !strings.Contains(viewStr, "程序版本与环境") {
+		t.Errorf("expected view to contain '程序版本与环境', got: %s", viewStr)
+	}
+
+	// Press Enter on item 9
+	_, cmd := sv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd on Enter on version item")
+	}
+}
+
 func TestBookshelfGroupSwitchingAndMoving(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "lnr-test-bookshelf-groups-*")
 	if err != nil {
