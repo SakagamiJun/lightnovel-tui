@@ -1,0 +1,29 @@
+name: 功能建议 (Feature Request)
+description: 为 LightNovelReader 提议新功能或使用体验优化
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您为 LightNovelReader 提出改进建议！
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解决的问题或痛点
+      description: 该功能是为了解决什么场景下的使用痛点？
+      placeholder: 当我在使用 ... 时，发现缺少 ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案
+      description: 请清晰描述您希望看到的新特性或交互方式。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案考虑
+      description: 您是否考虑过其他可行的替代方案？

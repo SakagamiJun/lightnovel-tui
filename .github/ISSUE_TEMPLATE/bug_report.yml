@@ -1,0 +1,50 @@
+name: 缺陷反馈 (Bug Report)
+description: 提交程序错误、崩溃或异常行为反馈
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您向 LightNovelReader 提交缺陷反馈！请尽可能详细地提供复现信息。
+  - type: textarea
+    id: description
+    attributes:
+      label: 缺陷描述
+      description: 请清晰描述您遇到的问题现象及预期行为。
+      placeholder: 在执行 ... 命令或在 TUI 中进行 ... 操作时发生了 ...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 请提供逐步复现该问题的具体操作。
+      placeholder: |
+        1. 启动 `lnr-tui` 或运行 `lnr ...`
+        2. 执行 ...
+        3. 观察到报错 ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 程序版本
+      description: 运行 `lnr version` 或 `lnr-tui -v` 输出的版本信息。
+      placeholder: v0.1.0 (darwin/arm64) commit:xxxxxxx
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、终端模拟器（如 iTerm2, Kitty, Alacritty, WezTerm, Terminal.app）。
+      placeholder: macOS 14.5 / iTerm2 3.5.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志或错误输出
+      description: 请粘贴任何相关的终端报错或异常输出。
+      render: shell

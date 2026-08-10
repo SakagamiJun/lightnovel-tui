@@ -1,4 +1,5 @@
 bin/
+dist/
 *.epub
 cache/
 .DS_Store
