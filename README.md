@@ -1,6 +1,6 @@
 <div align="center">
-  <h1>LIGHTNOVELREADER (LNR)</h1>
-  <p><strong>A Modern, High-Performance Terminal Light Novel Reader & Downloader</strong></p>
+  <h1>LNOVEL_TUI (LNR)</h1>
+  <p><strong>极简、现代且高性能的跨平台轻小说终端阅读与下载工具</strong></p>
   <img alt="Go" src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" />
   <img alt="TUI" src="https://img.shields.io/badge/TUI-Bubble_Tea-00B4D8?style=flat-square" />
   <img alt="CLI" src="https://img.shields.io/badge/CLI-Cobra-4361EE?style=flat-square" />
@@ -9,178 +9,210 @@
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgray?style=flat-square" />
   <img alt="Size" src="https://img.shields.io/github/repo-size/SakagamiJun/lnovel_tui?style=flat-square" />
   <br /><br />
-  <p>
-    <a href="./README.zh-CN.md">中文</a> | <b>English</b>
-  </p>
+  <img src="./design.png" alt="lnovel_tui 界面预览" width="860" />
 </div>
 
 ---
 
-`lnr-core` is a lightweight, cross-platform terminal reader, downloader, and manager for light novel enthusiasts. Designed with Clean Architecture principles and built on Go's native streaming and concurrency primitives, `lnr` completely eschews heavy Electron/Webview stacks to deliver sub-millisecond responsiveness, minimal memory usage, immersive terminal typography, and standards-compliant EPUB generation.
+`lnr-core` 是一款专为轻小说爱好者与极客打造的跨平台终端阅读与资源管理工具。本项目采用严格的整洁架构（Clean Architecture）设计，基于 Go 语言原生并发与流式处理机制构建，彻底摒弃臃肿的 Electron/Webview 技术栈，在微秒级响应与极低内存占用下，为您提供现代排版的沉浸式终端阅读体验与工业级 EPUB 导出能力。
 
 ---
 
-## Core Features & Architecture
+## 核心架构与特性
 
-### 1. Dual-Track Presentation Layer
-- **Command-Line Interface (`lnr`)**: Powered by Cobra, offering precise search, catalog extraction, multi-threaded streaming downloads, EPUB export, toplist exploration, and shell completion.
-- **Terminal User Interface (`lnr-tui`)**: Powered by Bubble Tea & Lipgloss, responsive to dynamic terminal dimensions, featuring dark themes, intuitive keyboard navigation, and seamless viewport paging.
+### 1. 双轨协同表现层
+- **命令行 CLI (`lnr`)**：基于 Cobra 构建，支持精准搜索、书籍详情检索、分卷并发下载、EPUB 打包、榜单浏览与 Shell 自动补全，专为脚本自动化与极速操作优化。
+- **终端交互 TUI (`lnr-tui`)**：基于 Bubble Tea 与 Lipgloss 构建，响应式自适应终端尺寸，提供高对比度现代暗色主题、键盘高效导航与流畅的窗口切片体验。
 
-### 2. Streaming Pipelines & Zero Memory Overhead
-- **Zero Memory Bloat**: Employs streaming transformations end-to-end (`sync.Pool` 32KB buffer pooling, streaming GB18030/UTF-8 transcoding, and streaming ZIP/EPUB writers).
-- **Process-Level Efficiency**: CLI and TUI share domain models directly through native Go APIs without subprocess overhead or stdout scraping.
-- **Clean Visual Presentation**: Professional textual badges (e.g., `[Bookshelf]`, `[Search]`, `[Explore]`, `[Settings]`), strictly avoiding visual clutter.
+### 2. 极致性能与流式处理管道
+- **零内存堆积**：核心包全链路采用流式传输与动态复用（`sync.Pool` 缓冲池复用、GB18030/UTF-8 字符集流式转码、流式 ZIP/EPUB 写入）。
+- **进程级零开销**：CLI 与 TUI 作为同级表现层直接消费领域模型（`model.BookDetail`、`model.Volume` 等），杜绝子进程调用与标准输出正则解析。
+- **界面严谨利落**：界面与输出中严禁使用任何 Emoji 符号，统一采用高对比度的专业文本标签（如 `[本地书架]`, `[在线搜索]`, `[探索榜单]`, `[偏好设置]`）。
 
-### 3. Immersive Terminal Reading
-- **Typography & Alignment**: Automatic East Asian character width alignment, smart word wrapping, and text sanitization rules (ellipsis/dash normalization and ad filter).
-- **Simplified / Traditional Chinese Toggle**: Seamless instant text conversion at the press of `t`.
-- **Automatic Bookmarks**: Tracks reading position by line number; instantly resumes where you left off.
-- **Themes**: Switch between multiple color palettes (Noir, Warm Sepia, Forest Pine).
+### 3. 沉浸式终端阅读引擎
+- **排版与对齐**：支持东亚字符宽度自适应对齐、段落缩进、智能断行与文本格式化清洗（支持全角省略号/破折号智能规范化与广告词过滤）。
+- **繁简即时转换**：阅读界面按 `t` 键即时在简体中文与繁体中文之间无缝切换。
+- **断点记忆书签**：自动精准记录阅读进度与行号，下次进入书籍瞬间无感续读。
+- **多套阅读主题**：内置经典墨黑、柔和暖调、护眼青黛等终端色彩方案。
 
-### 4. Native Terminal Illustration Viewer
-- **Protocol Adaptation**: Supports Kitty graphics protocol, iTerm2 inline images, and Sixel for high-definition illustrations directly in compatible terminals.
-- **System QuickLook**: Triggers macOS native QuickLook window for instant inspection.
+### 4. 终端原生插图预览与快速查看
+- **协议自适应**：原生适配 Kitty 图形协议、iTerm2 图像协议与 Sixel 标准，在支持的终端内直接高质量内联渲染插图。
+- **系统级预览**：macOS 环境下一键调起系统原生 QuickLook 独立高分辨率窗口。
 
-### 5. Standards-Compliant EPUB Generation
-- **Granular Export**: Export entire novel or split by volume into separate EPUB files.
-- **Text-Only Option**: Separate full illustrated edition from ultra-compact pure text edition.
-- **Reader Compatibility**: Compliant with EPUB 3.0 standards, compatible with Apple Books, Calibre, Kindle, and E-ink readers.
+### 5. 工业级流式 EPUB 导出
+- **颗粒度分卷打包**：支持全本打包或单卷/多卷独立分册打包。
+- **图文选项分离**：支持完整图文打包，亦支持生成纯文本轻量版本。
+- **标准电子书标准**：生成的 EPUB 3.0 规范文件兼容 Apple Books、Calibre、Kindle 及各大主流墨水屏阅读器。
 
-### 6. Bookshelf & Storage Management
-- **Smart Bookshelf**: Multi-group organization, pinned books, and multi-criteria dynamic sorting (recent read, word count, completion status).
-- **Update Tracking**: One-key online check to discover newly published volumes and chapters.
-- **Deep Storage Analysis**: Visual breakdown of text, images, and exported EPUBs with safe illustration cleanup (releasing 90%+ space while retaining covers and text).
+### 6. 本地书架与空间精细治理
+- **多维书架管理**：支持多分组分类、书籍置顶、智能多字段排序（最近阅读/字数/完结状态）。
+- **连载追踪同步**：联网一键批量轮询书架追更状态，自动同步最新分卷章节。
+- **深度存储分析**：可视化细分正文、插图与已导出 EPUB 占用，支持“仅清理插图缓存（安全释放90%+空间，保留封面与正文）”的定向瘦身策略。
 
 ---
 
-## Installation
+## 系统架构设计规范
 
-### macOS One-Line Install (Homebrew)
+```
+                    ┌─────────────────────────────────────────┐
+                    │               用户表现层                 │
+                    └────────────────────┬────────────────────┘
+                                         │
+                    ┌────────────────────┴────────────────────┐
+                    ▼                                         ▼
+           【CLI 命令行交互】                         【TUI 终端交互】
+             cmd/lnr/main.go                          cmd/lnr-tui/main.go
+            (Cobra 命令解析)                           (Bubble Tea 响应式视图)
+                    │                                         │
+                    └────────────────────┬────────────────────┘
+                                         │ 直接调用 Go 原生 API 与 Channel
+                                         ▼
+                    ┌─────────────────────────────────────────┐
+                    │             pkg/ 核心能力底座            │
+                    ├─────────────────────────────────────────┤
+                    │ pkg/source:     多源抓取引擎与解析器      │
+                    │ pkg/storage:    本地缓存与书架分组持久化  │
+                    │ pkg/downloader: 低内存流式并发下载引擎   │
+                    │ pkg/epub:       标准 EPUB 打包构建引擎   │
+                    │ pkg/reader:     终端排版与阅读书签记录   │
+                    │ pkg/text:       正则清洗与繁简转换引擎   │
+                    │ pkg/image:      终端原生图像渲染与预览   │
+                    │ pkg/version:    语义版本管理与更新探测   │
+                    └─────────────────────────────────────────┘
+```
+
+---
+
+## 部署与安装
+
+### macOS 一键安装 (Homebrew)
 
 ```bash
 brew tap SakagamiJun/tap
 brew trust SakagamiJun/tap
 brew install lnr
 ```
-*(Note: Per recent Homebrew security updates, run `brew trust SakagamiJun/tap` before installing from a third-party tap)*
+*(注：根据 Homebrew 安全更新，首次安装第三方 Tap 需执行 `brew trust SakagamiJun/tap`)*
 
-Both `lnr` (CLI) and `lnr-tui` (TUI) will be installed into your system path.
+安装完成后，系统将全局提供 `lnr`（CLI）与 `lnr-tui`（TUI）两个独立指令。
 
-### Pre-Built Binaries (GitHub Releases)
+### 预编译二进制下载 (GitHub Releases)
 
-Download pre-compiled binaries from the [Releases page](https://github.com/SakagamiJun/lnovel_tui/releases):
-- macOS (Apple Silicon & Intel)
-- Linux (x86_64 & ARM64)
+前往 [Releases 页面](https://github.com/SakagamiJun/lnovel_tui/releases) 下载适用于您系统的预编译归档包：
+- macOS (Apple Silicon / Intel)
+- Linux (x86_64 / ARM64)
 - Windows (x86_64)
 
-### Go Install
+解压后即可直接执行。
 
-Requires Go 1.22+:
+### Go 语言原生安装
+
+若本地已配置 Go 1.22+ 环境：
 ```bash
 go install lnr-core/cmd/lnr@latest
 go install lnr-core/cmd/lnr-tui@latest
 ```
 
-### Build from Source
+### 源码编译
 
 ```bash
 git clone https://github.com/SakagamiJun/lnovel_tui.git
 cd lnovel_tui
 make build
 ```
-Binaries will be output to `bin/lnr` and `bin/lnr-tui`.
+编译生成的二进制位于 `bin/lnr` 与 `bin/lnr-tui`。
 
 ---
 
-## Quickstart
+## 快速上手
 
-### 1. Terminal Reader (TUI)
+### 1. 终端交互阅读器 (TUI)
 
-Launch the interactive reader:
+直接启动交互式终端客户端：
 ```bash
 lnr-tui
 ```
 
-#### Keymap Navigation
+#### 全局快捷键导航
 
-| Key | Action | Description |
+| 快捷键 | 功能操作 | 说明 |
 | :--- | :--- | :--- |
-| `Tab` / `Shift+Tab` | Switch Tab | Cycle between Bookshelf, Explore, Search, Settings |
-| `↑` / `↓` or `k` / `j` | Move Cursor | Navigate books, chapters, or settings |
-| `Enter` | Select / Open | Open novel catalog, read chapter, or trigger option |
-| `Esc` | Back / Cancel | Return to previous view, exit modal, or cancel |
-| `q` | Quit | Exit program cleanly from main screens |
-| `Ctrl+C` | Force Exit | Immediately exit program from any view |
+| `Tab` / `Shift+Tab` | 切换主功能标签 | 【本地书架】/【探索榜单】/【在线搜索】/【偏好设置】 |
+| `↑` / `↓` 或 `k` / `j` | 上下移动光标 | 浏览列表项目与菜单配置 |
+| `Enter` | 确认进入 | 进入小说目录、打开章节阅读或执行操作 |
+| `Esc` | 返回上一级 | 从阅读界面返回目录，退出确认，取消对话框 |
+| `q` | 退出程序 | 在书架/主界面按 `q` 安全退出程序 |
+| `Ctrl+C` | 强制终止 | 任意界面随时安全退出 |
 
-#### Reading View Shortcuts
+#### 阅读界面快捷键
 
-| Key | Action | Description |
+| 快捷键 | 功能操作 | 说明 |
 | :--- | :--- | :--- |
-| `j` / `k` or `↓` / `↑` | Scroll Line | Scroll text viewport by configured step |
-| `Space` / `PageDown` | Page Down | Scroll down by a full viewport screen |
-| `b` / `PageUp` | Page Up | Scroll up by a full viewport screen |
-| `[` / `]` | Chapter Jump | Jump to previous or next chapter |
-| `t` | Toggle S/T | Toggle Simplified and Traditional Chinese |
-| `c` | Cycle Theme | Switch between reader color schemes |
-| `i` | View Images | Open illustration modal and inline viewer |
-| `Esc` | Exit Reader | Saves bookmark and returns to catalog |
+| `j` / `k` 或 `↓` / `↑` | 逐行平滑滚动 | 依据设置中的行步长滚动视口 |
+| `Space` / `PageDown` | 向下翻页 | 快速浏览下一屏幕正文 |
+| `b` / `PageUp` | 向上翻页 | 快速浏览上一屏幕正文 |
+| `[` / `]` | 跨章节跳转 | 快速翻阅上一章节或下一章节 |
+| `t` | 繁简转换切换 | 实时在简体中文与繁体中文正文间切换 |
+| `c` | 切换主题配色 | 轮转墨黑、柔和暖色、青黛等配色体系 |
+| `i` | 查看内嵌插图 | 唤起终端插图模态框与高清预览 |
+| `Esc` | 退出阅读 | 自动记录当前阅读位置与书签 |
 
 ---
 
-### 2. Command-Line Interface (CLI)
+### 2. 命令行工具 (CLI)
 
 ```bash
-# 1. Search for novels by title or author
+# 1. 搜索小说 (按书名或作者)
 lnr search "关于我转生变成史莱姆这档事"
 lnr search "伏濑" -a
 
-# 2. View details and volume catalog
+# 2. 查看小说详情与分卷目录
 lnr info 4340
 
-# 3. Explore Wenku8 toplists
+# 3. 浏览文库大赏与全站榜单
 lnr top anime
 lnr top allvisit
 
-# 4. Download chapters and illustrations
-lnr download 4340               # Full book
-lnr download 4340 --volume 1    # Volume 1 only
+# 4. 下载小说离线缓存 (支持全本或指定分卷)
+lnr download 4340               # 下载全部已上线章节与插图
+lnr download 4340 --volume 1    # 仅下载第 1 卷
 
-# 5. Export to EPUB
+# 5. 导出符合工业标准的 EPUB 电子书
 lnr export 4340 -o ./slime_complete.epub
 lnr export 4340 --volume 1 -o ./slime_vol1.epub
-lnr export 4340 --split-volume -o ./dist/        # Batch split by volume
-lnr export 4340 --no-images -o ./slime_text.epub # Text-only
+lnr export 4340 --split-volume -o ./dist/       # 批量按卷分册导出
+lnr export 4340 --no-images -o ./slime_text.epub # 纯文字轻量导出
 
-# 6. Check bookshelf online updates
+# 6. 书架联网更新状态同步
 lnr update
 
-# 7. Check version and build details
+# 7. 查看版本与详细构建信息
 lnr version
 lnr --version
 
-# 8. Generate shell completion
+# 8. 生成 Shell 自动补全脚本
 lnr completion zsh > ~/.zfunc/_lnr
 ```
 
 ---
 
-## Testing & Quality Assurance
+## 质量保障与自动化测试
 
-Run all test suites with data race detection:
+运行全量单元测试与并发竞态检测：
 ```bash
 make test
 ```
 
 ---
 
-## Acknowledgments
+## 鸣谢与生态致敬
 
-- [Charmbracelet](https://charm.sh/) - For the exceptional modern terminal libraries (`bubbletea`, `lipgloss`, `bubbles`).
-- [Wenku8](https://www.wenku8.net/) - For metadata and light novel resources.
-- [Cobra](https://github.com/spf13/cobra) - For robust CLI command infrastructure.
+- [Charmbracelet](https://charm.sh/) - 打造了令人惊艳的现代终端交互基础库（`bubbletea`, `lipgloss`, `bubbles`）。
+- [Wenku8](https://www.wenku8.net/) - 提供优质的轻小说书目元数据与数字排版资源。
+- [Cobra](https://github.com/spf13/cobra) - 赋能 Go 语言一流的命令行交互结构设计。
 
 ---
 
-## License
+## 开源协议
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
+本项目基于 MIT 协议进行开源分发。详见 [LICENSE](LICENSE) 获取完整条款。
