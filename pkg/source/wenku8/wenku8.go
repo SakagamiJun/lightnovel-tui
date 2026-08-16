@@ -89,6 +89,9 @@ func (s *Wenku8Source) Search(ctx context.Context, searchType source.SearchType,
 	if strings.Contains(fullText, "两次搜索的间隔时间不得少于 5 秒") {
 		return nil, 0, errors.New("search rate limit exceeded, please retry in a few seconds")
 	}
+	if strings.Contains(fullText, "用户登录") || strings.Contains(fullText, "请输入用户名") {
+		return nil, 0, errors.New("wenku8 搜索需要登录会话，请配置 LNR_WENKU8_COOKIE 环境变量")
+	}
 
 	// Check if redirected directly to a single book page
 	var singleBookID string

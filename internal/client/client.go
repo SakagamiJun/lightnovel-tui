@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"lnr-core/internal/encoding"
@@ -22,7 +24,7 @@ type HttpClient struct {
 	client *http.Client
 }
 
-// NewHttpClient creates an HTTP client configured with cookie session for Wenku8.
+// NewHttpClient creates an HTTP client configured with optional cookie session for Wenku8.
 func NewHttpClient() (*HttpClient, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -36,27 +38,33 @@ func NewHttpClient() (*HttpClient, error) {
 		},
 	}
 
-	// Set default wenku8 cookies across supported domains
-	domains := []string{"https://www.wenku8.cc", "https://www.wenku8.net", "https://www.wenku8.com"}
-	for _, rawURL := range domains {
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			continue
+	// Support custom cookies via environment variable (e.g. LNR_WENKU8_COOKIE)
+	customCookie := strings.TrimSpace(os.Getenv("LNR_WENKU8_COOKIE"))
+	if customCookie != "" {
+		domains := []string{"https://www.wenku8.cc", "https://www.wenku8.net", "https://www.wenku8.com"}
+		for _, rawURL := range domains {
+			u, err := url.Parse(rawURL)
+			if err != nil {
+				continue
+			}
+			var cookies []*http.Cookie
+			for _, pair := range strings.Split(customCookie, ";") {
+				pair = strings.TrimSpace(pair)
+				if pair == "" {
+					continue
+				}
+				parts := strings.SplitN(pair, "=", 2)
+				if len(parts) == 2 {
+					cookies = append(cookies, &http.Cookie{
+						Name:  strings.TrimSpace(parts[0]),
+						Value: strings.TrimSpace(parts[1]),
+					})
+				}
+			}
+			if len(cookies) > 0 {
+				c.client.Jar.SetCookies(u, cookies)
+			}
 		}
-		c.client.Jar.SetCookies(u, []*http.Cookie{
-			{
-				Name:  "jieqiUserInfo",
-				Value: "jieqiUserId=1125456,jieqiUserName=yyhyy,jieqiUserGroup=3,jieqiUserVip=0,jieqiUserPassword=eb62861281462fd923fb99218735fef0,jieqiUserName_un=yyhyy,jieqiUserHonor_un=%26%23x4E2D%3B%26%23x7EA7%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserGroupName_un=%26%23x666E%3B%26%23x901A%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserLogin=1739294499",
-			},
-			{
-				Name:  "jieqiVisitInfo",
-				Value: "jieqiUserLogin=1739294499,jieqiUserId=1125456",
-			},
-			{
-				Name:  "HMACCOUNT",
-				Value: "E7837B0FF79F0590",
-			},
-		})
 	}
 
 	return c, nil
