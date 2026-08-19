@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 func TestStorageBreakdownAndCleanup(t *testing.T) {

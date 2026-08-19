@@ -11,12 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"lnr-core/pkg/epub"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/tui/common"
-	"lnr-core/pkg/tui/theme"
+	"github.com/SakagamiJun/lnovel_tui/pkg/epub"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
 )
 
 type catalogResultMsg struct {

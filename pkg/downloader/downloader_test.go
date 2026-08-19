@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source/wenku8"
-	"lnr-core/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source/wenku8"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
 )
 
 func TestDownloadVolume(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 // GetChapterContent fetches and parses the chapter text and illustrations.

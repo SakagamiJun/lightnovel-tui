@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/tui/theme"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
 )
 
 var (

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
 )
 
 func TestEPUBBuilder(t *testing.T) {

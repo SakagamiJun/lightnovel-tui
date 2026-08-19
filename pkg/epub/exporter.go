@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"lnr-core/pkg/downloader"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/downloader"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
 )
 
 // ExportOption configures how EPUB files are built and exported.

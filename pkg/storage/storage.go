@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 // Storage manages local disk caching of books, catalogs, chapters, and images.

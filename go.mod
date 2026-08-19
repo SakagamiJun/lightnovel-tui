@@ -1,4 +1,4 @@
-module lnr-core
+module github.com/SakagamiJun/lnovel_tui
 
 go 1.27.1
 

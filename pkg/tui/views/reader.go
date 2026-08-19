@@ -15,13 +15,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	termimage "lnr-core/pkg/image"
-	"lnr-core/pkg/reader"
-	"lnr-core/pkg/source"
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/text"
-	"lnr-core/pkg/tui/common"
-	"lnr-core/pkg/tui/theme"
+	termimage "github.com/SakagamiJun/lnovel_tui/pkg/image"
+	"github.com/SakagamiJun/lnovel_tui/pkg/reader"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
 )
 
 type chapterContentLoadedMsg struct {

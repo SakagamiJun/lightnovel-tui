@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 // watermarkKeywords contains substrings that identify advertisement or site watermark lines in Wenku8.

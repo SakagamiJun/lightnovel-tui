@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
 )
 
 type mockUpdateSource struct {

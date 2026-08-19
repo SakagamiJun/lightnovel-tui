@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"lnr-core/internal/client"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
-	"lnr-core/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/internal/client"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
 )
 
 // bufferPool provides reusable 32KB buffers to avoid allocation churn and keep memory minimal.

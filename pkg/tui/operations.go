@@ -10,12 +10,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"lnr-core/pkg/downloader"
-	"lnr-core/pkg/epub"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/tui/common"
+	"github.com/SakagamiJun/lnovel_tui/pkg/downloader"
+	"github.com/SakagamiJun/lnovel_tui/pkg/epub"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
 )
 
 type progressUpdateMsg struct {

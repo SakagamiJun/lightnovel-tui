@@ -13,7 +13,7 @@ import (
 
 var (
 	// Version is injected at build time via -ldflags:
-	// -X lnr-core/pkg/version.Version=v1.0.0
+	// -X github.com/SakagamiJun/lnovel_tui/pkg/version.Version=v1.0.0
 	Version   = ""
 	GitCommit = ""
 	BuildDate = ""
@@ -118,7 +118,7 @@ func CheckLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "lnr-core/"+GetVersion())
+	req.Header.Set("User-Agent", "github.com/SakagamiJun/lnovel_tui/"+GetVersion())
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)

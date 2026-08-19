@@ -12,15 +12,15 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
-	"lnr-core/pkg/downloader"
-	"lnr-core/pkg/epub"
-	termimage "lnr-core/pkg/image"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
-	"lnr-core/pkg/source/wenku8"
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/text"
-	"lnr-core/pkg/version"
+	"github.com/SakagamiJun/lnovel_tui/pkg/downloader"
+	"github.com/SakagamiJun/lnovel_tui/pkg/epub"
+	termimage "github.com/SakagamiJun/lnovel_tui/pkg/image"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source/wenku8"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/version"
 )
 
 func init() {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 func TestWenku8ChapterContent(t *testing.T) {

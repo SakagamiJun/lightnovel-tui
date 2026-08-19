@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
 )
 
 func TestWenku8SearchAndDetail(t *testing.T) {

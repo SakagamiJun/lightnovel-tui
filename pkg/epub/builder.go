@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
 )
 
 // bufferPool provides reusable 32KB buffers for streaming zip writes.

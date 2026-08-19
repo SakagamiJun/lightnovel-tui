@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"lnr-core/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
 )
 
 func TestStorageRules(t *testing.T) {

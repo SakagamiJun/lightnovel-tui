@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"lnr-core/internal/encoding"
+	"github.com/SakagamiJun/lnovel_tui/internal/encoding"
 )
 
 const (

@@ -12,9 +12,7 @@
   <img src="./design.png" alt="lnovel_tui 界面预览" width="860" />
 </div>
 
----
-
-`lnr-core` 是一款专为轻小说爱好者与极客打造的跨平台终端阅读与资源管理工具。本项目采用严格的整洁架构（Clean Architecture）设计，基于 Go 语言原生并发与流式处理机制构建，彻底摒弃臃肿的 Electron/Webview 技术栈，在微秒级响应与极低内存占用下，为您提供现代排版的沉浸式终端阅读体验与工业级 EPUB 导出能力。
+`LNOVEL_TUI (lnr)` 是一款专为轻小说爱好者与极客打造的跨平台终端阅读与资源管理工具。本项目采用严格的整洁架构（Clean Architecture）设计，基于 Go 语言原生并发与流式处理机制构建，彻底摒弃臃肿的 Electron/Webview 技术栈，在微秒级响应与极低内存占用下，为您提供现代排版的沉浸式终端阅读体验与工业级 EPUB 导出能力。
 
 ---
 
@@ -109,8 +107,8 @@ brew install lnr
 
 若本地已配置 Go 1.22+ 环境：
 ```bash
-go install lnr-core/cmd/lnr@latest
-go install lnr-core/cmd/lnr-tui@latest
+go install github.com/SakagamiJun/lnovel_tui/cmd/lnr@latest
+go install github.com/SakagamiJun/lnovel_tui/cmd/lnr-tui@latest
 ```
 
 ### 源码编译

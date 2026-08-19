@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"lnr-core/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
 )
 
 func (s *Storage) rulesFilePath() string {

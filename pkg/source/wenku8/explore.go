@@ -8,9 +8,9 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"lnr-core/internal/encoding"
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/internal/encoding"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
 )
 
 // DefaultWenku8Tags defines the 50 high-frequency novel categories from Wenku8.

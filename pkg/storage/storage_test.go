@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"lnr-core/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
 )
 
 func TestListCachedBooks(t *testing.T) {

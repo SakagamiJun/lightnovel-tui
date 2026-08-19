@@ -6,8 +6,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/source"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/source"
 )
 
 // DefaultWenku8Publishers defines the official 14 publishing houses on Wenku8.

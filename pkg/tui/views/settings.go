@@ -14,11 +14,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"lnr-core/pkg/storage"
-	"lnr-core/pkg/text"
-	"lnr-core/pkg/tui/common"
-	"lnr-core/pkg/tui/theme"
-	"lnr-core/pkg/version"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
+	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
+	"github.com/SakagamiJun/lnovel_tui/pkg/version"
 )
 
 // AppConfig represents persisted user preferences.

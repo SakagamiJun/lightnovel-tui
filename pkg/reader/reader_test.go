@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"lnr-core/pkg/model"
-	"lnr-core/pkg/storage"
+	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
 )
 
 func TestReaderEngine(t *testing.T) {
