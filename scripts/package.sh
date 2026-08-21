@@ -25,7 +25,13 @@ ARCHIVE_NAME="lnr-v${CLEAN_VERSION}-${TARGET_OS}-${TARGET_ARCH}"
 
 if [[ "$TARGET_OS" == "windows" ]]; then
   ARCHIVE_FILE="${ARCHIVE_NAME}.zip"
-  (cd "$STAGE_DIR" && zip -q -r "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$STAGE_DIR" && zip -q -r "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+  elif command -v 7z >/dev/null 2>&1; then
+    (cd "$STAGE_DIR" && 7z a -bd -bso0 "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+  else
+    (cd "$STAGE_DIR" && tar -a -cf "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+  fi
 else
   ARCHIVE_FILE="${ARCHIVE_NAME}.tar.gz"
   tar -czf "${DIST_DIR}/${ARCHIVE_FILE}" -C "$STAGE_DIR" .

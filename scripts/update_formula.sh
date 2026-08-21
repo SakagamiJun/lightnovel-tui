@@ -51,7 +51,7 @@ class Lnr < Formula
 
   test do
     assert_match "LightNovelReader CLI", shell_output("#{bin}/lnr --help")
-    assert_match "version", shell_output("#{bin}/lnr version")
+    assert_match "LightNovelReader CLI", shell_output("#{bin}/lnr version")
   end
 end
 EOF
