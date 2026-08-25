@@ -1,7 +1,7 @@
 <div align="center">
   <h1>LNOVEL_TUI (LNR)</h1>
   <p><strong>极简、现代且高性能的跨平台轻小说终端阅读与下载工具</strong></p>
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" />
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" />
   <img alt="TUI" src="https://img.shields.io/badge/TUI-Bubble_Tea-00B4D8?style=flat-square" />
   <img alt="CLI" src="https://img.shields.io/badge/CLI-Cobra-4361EE?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
@@ -105,7 +105,7 @@ brew install lnr
 
 ### Go 语言原生安装
 
-若本地已配置 Go 1.22+ 环境：
+若本地已配置 Go 1.25+ 环境：
 ```bash
 go install github.com/SakagamiJun/lnovel_tui/cmd/lnr@latest
 go install github.com/SakagamiJun/lnovel_tui/cmd/lnr-tui@latest
