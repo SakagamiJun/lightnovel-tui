@@ -24,6 +24,27 @@ type HttpClient struct {
 	client *http.Client
 }
 
+// createDefaultWenku8Cookies provides a built-in session fallback so guest users can search out-of-the-box.
+func createDefaultWenku8Cookies() []*http.Cookie {
+	return []*http.Cookie{
+		{
+			Name:  "jieqiUserInfo",
+			Value: "jieqiUserId=1125456,jieqiUserName=yyhyy,jieqiUserGroup=3,jieqiUserVip=0,jieqiUserPassword=eb62861281462fd923fb99218735fef0,jieqiUserName_un=yyhyy,jieqiUserHonor_un=%26%23x4E2D%3B%26%23x7EA7%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserGroupName_un=%26%23x666E%3B%26%23x901A%3B%26%23x4F1A%3B%26%23x5458%3B,jieqiUserLogin=1739294499",
+			Path:  "/",
+		},
+		{
+			Name:  "jieqiVisitInfo",
+			Value: "jieqiUserLogin=1739294499,jieqiUserId=1125456",
+			Path:  "/",
+		},
+		{
+			Name:  "HMACCOUNT",
+			Value: "E7837B0FF79F0590",
+			Path:  "/",
+		},
+	}
+}
+
 // NewHttpClient creates an HTTP client configured with optional cookie session for Wenku8.
 func NewHttpClient() (*HttpClient, error) {
 	jar, err := cookiejar.New(nil)
@@ -38,15 +59,17 @@ func NewHttpClient() (*HttpClient, error) {
 		},
 	}
 
-	// Support custom cookies via environment variable (e.g. LNR_WENKU8_COOKIE)
+	// Configure Wenku8 cookies: use user-defined LNR_WENKU8_COOKIE if set, otherwise fallback to defaultWenku8Cookies
+	domains := []string{"https://www.wenku8.cc", "https://www.wenku8.net", "https://www.wenku8.com"}
 	customCookie := strings.TrimSpace(os.Getenv("LNR_WENKU8_COOKIE"))
-	if customCookie != "" {
-		domains := []string{"https://www.wenku8.cc", "https://www.wenku8.net", "https://www.wenku8.com"}
-		for _, rawURL := range domains {
-			u, err := url.Parse(rawURL)
-			if err != nil {
-				continue
-			}
+
+	for _, rawURL := range domains {
+		u, err := url.Parse(rawURL)
+		if err != nil {
+			continue
+		}
+
+		if customCookie != "" {
 			var cookies []*http.Cookie
 			for _, pair := range strings.Split(customCookie, ";") {
 				pair = strings.TrimSpace(pair)
@@ -58,12 +81,15 @@ func NewHttpClient() (*HttpClient, error) {
 					cookies = append(cookies, &http.Cookie{
 						Name:  strings.TrimSpace(parts[0]),
 						Value: strings.TrimSpace(parts[1]),
+						Path:  "/",
 					})
 				}
 			}
 			if len(cookies) > 0 {
 				c.client.Jar.SetCookies(u, cookies)
 			}
+		} else {
+			c.client.Jar.SetCookies(u, createDefaultWenku8Cookies())
 		}
 	}
 

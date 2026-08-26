@@ -22,18 +22,20 @@ func TestWenku8SearchAndDetail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
-	// Test Search (requires valid login session cookie)
+	// Test Search (using default fallback cookie or custom LNR_WENKU8_COOKIE)
 	results, _, err := src.Search(ctx, source.SearchTypeTitle, "史莱姆", 1)
-	bookID := "4340"
 	if err != nil {
-		t.Logf("search skipped: %v", err)
-	} else if len(results) > 0 {
-		bookID = results[0].ID
-		t.Logf("Found book: ID=%s, Title=%s, Author=%s", results[0].ID, results[0].Title, results[0].Author)
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected search results for '史莱姆', got 0")
 	}
 
+	first := results[0]
+	t.Logf("Found book: ID=%s, Title=%s, Author=%s", first.ID, first.Title, first.Author)
+
 	// Test Detail
-	detail, err := src.GetBookDetail(ctx, bookID)
+	detail, err := src.GetBookDetail(ctx, first.ID)
 	if err != nil {
 		t.Fatalf("get detail failed: %v", err)
 	}
@@ -41,7 +43,7 @@ func TestWenku8SearchAndDetail(t *testing.T) {
 		detail.Title, detail.Publisher, detail.WordCount, detail.IsComplete)
 
 	// Test Catalog
-	catalog, err := src.GetCatalog(ctx, bookID)
+	catalog, err := src.GetCatalog(ctx, first.ID)
 	if err != nil {
 		t.Fatalf("get catalog failed: %v", err)
 	}
