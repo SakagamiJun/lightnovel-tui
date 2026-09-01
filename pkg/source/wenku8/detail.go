@@ -25,9 +25,7 @@ func (s *Wenku8Source) GetBookDetail(ctx context.Context, bookID string) (*model
 		return nil, fmt.Errorf("failed to parse book detail HTML: %w", err)
 	}
 
-	if strings.Contains(doc.Text(), "因版权问题") {
-		return nil, fmt.Errorf("book %s is blocked due to copyright restrictions on Wenku8", bookID)
-	}
+	isBlocked := strings.Contains(doc.Text(), "因版权问题")
 
 	firstTable := doc.Find("#content table").First()
 
@@ -101,6 +99,7 @@ func (s *Wenku8Source) GetBookDetail(ctx context.Context, bookID string) (*model
 			WordCount:   wordCount,
 			LastUpdated: lastUpdated,
 			IsComplete:  strings.Contains(status, "已完结"),
+			IsBlocked:   isBlocked,
 		},
 	}, nil
 }

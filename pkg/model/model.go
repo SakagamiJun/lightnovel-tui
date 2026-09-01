@@ -13,6 +13,7 @@ type BookSummary struct {
 	WordCount   int      `json:"word_count,omitempty"`
 	LastUpdated string   `json:"last_updated,omitempty"`
 	IsComplete  bool     `json:"is_complete"`
+	IsBlocked   bool     `json:"is_blocked,omitempty"`
 }
 
 // BookDetail contains complete book metadata including tags and last update.

@@ -72,3 +72,64 @@ func TestWenku8DescriptionCachingAndEnrichment(t *testing.T) {
 		t.Errorf("expected enriched full description, got %q", enriched[0].Description)
 	}
 }
+
+func TestWenku8BlockedBook(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	src, err := NewWenku8Source()
+	if err != nil {
+		t.Fatalf("failed to init wenku8 source: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Book 102: 凉宫春日物语 (blocked due to copyright on Wenku8)
+	detail, err := src.GetBookDetail(ctx, "102")
+	if err != nil {
+		t.Fatalf("GetBookDetail failed for blocked book 102: %v", err)
+	}
+	if !detail.IsBlocked {
+		t.Errorf("expected IsBlocked=true for book 102, got false")
+	}
+	if detail.Title != "凉宫春日物语" {
+		t.Errorf("expected title '凉宫春日物语', got %q", detail.Title)
+	}
+	if detail.Author != "谷川流" {
+		t.Errorf("expected author '谷川流', got %q", detail.Author)
+	}
+}
+
+func TestWenku8SearchBlockedRedirect(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network test in short mode")
+	}
+
+	src, err := NewWenku8Source()
+	if err != nil {
+		t.Fatalf("failed to init wenku8 source: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Searching "凉宫春日" triggers direct redirect to book 102
+	results, totalPages, err := src.Search(ctx, source.SearchTypeTitle, "凉宫春日", 1)
+	if err != nil {
+		t.Fatalf("Search failed for '凉宫春日': %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected at least 1 result for '凉宫春日', got 0")
+	}
+	if !results[0].IsBlocked {
+		t.Errorf("expected results[0].IsBlocked=true, got false")
+	}
+	if results[0].ID != "102" {
+		t.Errorf("expected results[0].ID='102', got %q", results[0].ID)
+	}
+	if totalPages < 1 {
+		t.Errorf("expected totalPages >= 1, got %d", totalPages)
+	}
+}
