@@ -56,6 +56,11 @@ func startDownloadTask(src source.DataSource, store *storage.Storage, bookID str
 			_ = store.SaveBookDetail(detail)
 		}
 
+		if detail.IsBlocked {
+			ch <- fmt.Sprintf("[提示] 《%s》因版权问题已在源站下架，无法提供章节下载。", detail.Title)
+			return
+		}
+
 		// 2. Ensure catalog is cached
 		catalog, err := store.LoadCatalog(bookID)
 		if err != nil || catalog == nil {
@@ -225,6 +230,10 @@ func startExportWithOptionsTask(src source.DataSource, store *storage.Storage, b
 				}
 			}
 			if missing {
+				if detail.IsBlocked {
+					ch <- fmt.Sprintf("[提示] 《%s》因版权问题已在源站下架，无法下载缺失章节进行导出。", detail.Title)
+					return
+				}
 				ch <- fmt.Sprintf("[导出] 正在自动缓存缺少的分卷章节: %s...", item.vol.Title)
 				if err := dl.DownloadVolume(ctx, bookID, item.vol, nil); err != nil {
 					ch <- fmt.Sprintf("[错误] 缓存分卷 %s 失败: %v", item.vol.Title, err)

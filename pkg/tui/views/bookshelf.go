@@ -762,9 +762,13 @@ func (v *BookshelfView) View() string {
 		if b.IsComplete {
 			compBadge = theme.BadgeSuccess.Render("完结")
 		}
+		var blockedBadge string
+		if b.IsBlocked {
+			blockedBadge = theme.BadgeWarning.Render("版权受限")
+		}
 
 		var line1Badges string
-		badges := make([]string, 0, 3)
+		badges := make([]string, 0, 4)
 		if pinBadge != "" {
 			badges = append(badges, pinBadge)
 		}
@@ -773,6 +777,9 @@ func (v *BookshelfView) View() string {
 		}
 		if compBadge != "" {
 			badges = append(badges, compBadge)
+		}
+		if blockedBadge != "" {
+			badges = append(badges, blockedBadge)
 		}
 		line1Badges = strings.Join(badges, " ")
 
@@ -789,6 +796,9 @@ func (v *BookshelfView) View() string {
 		statusStr := "连载中"
 		if b.IsComplete {
 			statusStr = "已完结"
+		}
+		if b.IsBlocked {
+			statusStr += " (版权受限)"
 		}
 
 		if isSelected {

@@ -1179,3 +1179,49 @@ func TestExploreAndSearchDescriptionEnrichment(t *testing.T) {
 		t.Errorf("expected quickFillFromStore to populate full description in explore from store")
 	}
 }
+
+func TestBlockedBadgeRendering(t *testing.T) {
+	blockedBook := model.BookSummary{
+		ID:          "102",
+		Title:       "凉宫春日物语",
+		Author:      "谷川流",
+		Publisher:   "角川文库",
+		Description: "这是测试简介",
+		IsComplete:  true,
+		IsBlocked:   true,
+	}
+
+	// 1. Test SearchView rendering
+	sv := &SearchView{
+		width:   120,
+		height:  24,
+		results: []model.BookSummary{blockedBook},
+	}
+	svOutput := sv.View()
+	if !strings.Contains(svOutput, "版权受限") {
+		t.Errorf("expected SearchView to render '版权受限', got:\n%s", svOutput)
+	}
+
+	// 2. Test ExploreView rendering
+	ev := &ExploreView{
+		width:   120,
+		height:  24,
+		results: []model.BookSummary{blockedBook},
+	}
+	evOutput := ev.View()
+	if !strings.Contains(evOutput, "版权受限") {
+		t.Errorf("expected ExploreView to render '版权受限', got:\n%s", evOutput)
+	}
+
+	// 3. Test BookshelfView rendering
+	bv := &BookshelfView{
+		width:      120,
+		height:     24,
+		books:      []model.BookDetail{{BookSummary: blockedBook}},
+		updatesMap: make(map[string]int),
+	}
+	bvOutput := bv.View()
+	if !strings.Contains(bvOutput, "版权受限") {
+		t.Errorf("expected BookshelfView to render '版权受限', got:\n%s", bvOutput)
+	}
+}

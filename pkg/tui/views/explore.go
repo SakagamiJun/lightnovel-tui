@@ -632,6 +632,12 @@ func (v *ExploreView) View() string {
 		if b.IsComplete {
 			line1Badges = theme.BadgeSuccess.Render("完结")
 		}
+		if b.IsBlocked {
+			if line1Badges != "" {
+				line1Badges += " "
+			}
+			line1Badges += theme.BadgeWarning.Render("版权受限")
+		}
 
 		desc := theme.CleanDescription(b.Description)
 		if desc == "" {
@@ -646,6 +652,9 @@ func (v *ExploreView) View() string {
 		statusStr := "连载中"
 		if b.IsComplete {
 			statusStr = "已完结"
+		}
+		if b.IsBlocked {
+			statusStr += " (版权受限)"
 		}
 
 		if isSelected {
