@@ -87,7 +87,10 @@ func main() {
 				if book.IsComplete {
 					completeStatus = "已完结"
 				}
-				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+				if book.IsBlocked {
+					completeStatus += "/版权受限"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-10s | %d 字 | ID: %s\n",
 					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, completeStatus, book.WordCount, book.ID)
 			}
 			fmt.Println(strings.Repeat("-", 80))
@@ -124,8 +127,18 @@ func main() {
 			if detail.Subtitle != "" {
 				fmt.Printf("副标题: %s\n", detail.Subtitle)
 			}
-			fmt.Printf("作者: %s | 文库: %s | 更新时间: %s | 全文: %d 字\n",
-				detail.Author, detail.Publisher, detail.LastUpdated, detail.WordCount)
+			statusStr := "连载中"
+			if detail.IsComplete {
+				statusStr = "已完结"
+			}
+			if detail.IsBlocked {
+				statusStr += " [版权受限]"
+			}
+			fmt.Printf("作者: %s | 文库: %s | 状态: %s | 更新时间: %s | 全文: %d 字\n",
+				detail.Author, detail.Publisher, statusStr, detail.LastUpdated, detail.WordCount)
+			if detail.IsBlocked {
+				fmt.Println("版权提示: 本书因版权问题已在源站下架，无法在线阅读或下载正文")
+			}
 			if len(detail.Tags) > 0 {
 				fmt.Printf("标签: %s\n", strings.Join(detail.Tags, " / "))
 			}
@@ -158,16 +171,23 @@ func main() {
 			targetVol, _ := cmd.Flags().GetInt("volume")
 			ctx := context.Background()
 
-			// Ensure catalog exists
-			catalog, err := store.LoadCatalog(bookID)
-			if err != nil {
-				fmt.Println("正在获取书籍目录...")
-				detail, err := src.GetBookDetail(ctx, bookID)
+			// Ensure book detail exists and check copyright restriction
+			detail, err := store.LoadBookDetail(bookID)
+			if err != nil || detail == nil {
+				detail, err = src.GetBookDetail(ctx, bookID)
 				if err != nil {
 					return err
 				}
 				_ = store.SaveBookDetail(detail)
+			}
+			if detail != nil && detail.IsBlocked {
+				return fmt.Errorf("《%s》因版权问题已在源站下架，无法下载章节正文", detail.Title)
+			}
 
+			// Ensure catalog exists
+			catalog, err := store.LoadCatalog(bookID)
+			if err != nil {
+				fmt.Println("正在获取书籍目录...")
 				catalog, err = src.GetCatalog(ctx, bookID)
 				if err != nil {
 					return err
@@ -180,7 +200,7 @@ func main() {
 				return err
 			}
 
-			detail, _ := store.LoadBookDetail(bookID)
+			detail, _ = store.LoadBookDetail(bookID)
 			if detail != nil && detail.CoverURL != "" {
 				fmt.Println("正在下载封面...")
 				_, _ = dl.DownloadCover(ctx, bookID, detail.CoverURL)
@@ -543,7 +563,10 @@ func main() {
 				if book.IsComplete {
 					status = "已完结"
 				}
-				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+				if book.IsBlocked {
+					status += "/版权受限"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-10s | %d 字 | ID: %s\n",
 					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
 			}
 			fmt.Println(strings.Repeat("-", 80))
@@ -603,7 +626,10 @@ func main() {
 				if book.IsComplete {
 					status = "已完结"
 				}
-				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+				if book.IsBlocked {
+					status += "/版权受限"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-10s | %d 字 | ID: %s\n",
 					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
 			}
 			fmt.Println(strings.Repeat("-", 80))
@@ -1008,7 +1034,10 @@ func main() {
 				if book.IsComplete {
 					status = "已完结"
 				}
-				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-6s | %d 字 | ID: %s\n",
+				if book.IsBlocked {
+					status += "/版权受限"
+				}
+				fmt.Printf("[%2d] %-30s | 作者: %-15s | 文库: %-10s | %-10s | %d 字 | ID: %s\n",
 					(page-1)*20+i+1, book.Title, book.Author, book.Publisher, status, book.WordCount, book.ID)
 			}
 			fmt.Println(strings.Repeat("-", 80))
