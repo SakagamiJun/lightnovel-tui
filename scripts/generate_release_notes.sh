@@ -24,18 +24,22 @@ fixes=""
 perf_refactor=""
 others=""
 
+re_feat='^feat(\([^)]+\))?:'
+re_fix='^fix(\([^)]+\))?:'
+re_perf_refactor='^(perf|refactor)(\([^)]+\))?:'
+
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   hash="$(echo "$line" | cut -d' ' -f1)"
   msg="$(echo "$line" | cut -d' ' -f2-)"
 
-  if [[ "$msg" =~ ^feat(\([^)]+\))?: ]]; then
+  if [[ "$msg" =~ $re_feat ]]; then
     clean_msg="$(echo "$msg" | sed -E 's/^feat(\([^)]+\))?:[[:space:]]*//')"
     features+="- ${clean_msg} (${hash})\n"
-  elif [[ "$msg" =~ ^fix(\([^)]+\))?: ]]; then
+  elif [[ "$msg" =~ $re_fix ]]; then
     clean_msg="$(echo "$msg" | sed -E 's/^fix(\([^)]+\))?:[[:space:]]*//')"
     fixes+="- ${clean_msg} (${hash})\n"
-  elif [[ "$msg" =~ ^(perf|refactor)(\([^)]+\))?: ]]; then
+  elif [[ "$msg" =~ $re_perf_refactor ]]; then
     clean_msg="$(echo "$msg" | sed -E 's/^(perf|refactor)(\([^)]+\))?:[[:space:]]*//')"
     perf_refactor+="- ${clean_msg} (${hash})\n"
   else

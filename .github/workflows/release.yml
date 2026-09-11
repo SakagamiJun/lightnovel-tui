@@ -152,7 +152,7 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          sha256sum * > checksums.txt
+          sha256sum lnr-* > checksums.txt
           cat checksums.txt
 
       - name: Generate release notes
