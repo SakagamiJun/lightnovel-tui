@@ -2,6 +2,7 @@ package wenku8
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -9,8 +10,8 @@ import (
 )
 
 func TestWenku8ChapterContent(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("skipping network test in short/CI mode")
 	}
 
 	src, err := NewWenku8Source()
@@ -24,6 +25,9 @@ func TestWenku8ChapterContent(t *testing.T) {
 	// Test text chapter (Book 4340, Chapter 177911)
 	ch, err := src.GetChapterContent(ctx, "4340", "177911")
 	if err != nil {
+		if isNetworkBlocked(err) {
+			t.Skipf("skipping test due to network error/block: %v", err)
+		}
 		t.Fatalf("failed to get text chapter: %v", err)
 	}
 

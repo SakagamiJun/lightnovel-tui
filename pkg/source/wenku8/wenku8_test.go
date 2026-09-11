@@ -2,6 +2,8 @@ package wenku8
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,9 +11,21 @@ import (
 	"github.com/SakagamiJun/lnovel_tui/pkg/source"
 )
 
+func isNetworkBlocked(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "403") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "i/o timeout")
+}
+
 func TestWenku8SearchAndDetail(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("skipping network test in short/CI mode")
 	}
 
 	src, err := NewWenku8Source()
@@ -25,6 +39,9 @@ func TestWenku8SearchAndDetail(t *testing.T) {
 	// Test Search (using default fallback cookie or custom LNR_WENKU8_COOKIE)
 	results, _, err := src.Search(ctx, source.SearchTypeTitle, "史莱姆", 1)
 	if err != nil {
+		if isNetworkBlocked(err) {
+			t.Skipf("skipping test due to network error/block: %v", err)
+		}
 		t.Fatalf("search failed: %v", err)
 	}
 	if len(results) == 0 {
@@ -74,8 +91,8 @@ func TestWenku8DescriptionCachingAndEnrichment(t *testing.T) {
 }
 
 func TestWenku8BlockedBook(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("skipping network test in short/CI mode")
 	}
 
 	src, err := NewWenku8Source()
@@ -89,6 +106,9 @@ func TestWenku8BlockedBook(t *testing.T) {
 	// Book 102: 凉宫春日物语 (blocked due to copyright on Wenku8)
 	detail, err := src.GetBookDetail(ctx, "102")
 	if err != nil {
+		if isNetworkBlocked(err) {
+			t.Skipf("skipping test due to network error/block: %v", err)
+		}
 		t.Fatalf("GetBookDetail failed for blocked book 102: %v", err)
 	}
 	if !detail.IsBlocked {
@@ -103,8 +123,8 @@ func TestWenku8BlockedBook(t *testing.T) {
 }
 
 func TestWenku8SearchBlockedRedirect(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping network test in short mode")
+	if testing.Short() || os.Getenv("CI") != "" {
+		t.Skip("skipping network test in short/CI mode")
 	}
 
 	src, err := NewWenku8Source()
@@ -118,6 +138,9 @@ func TestWenku8SearchBlockedRedirect(t *testing.T) {
 	// Searching "凉宫春日" triggers direct redirect to book 102
 	results, totalPages, err := src.Search(ctx, source.SearchTypeTitle, "凉宫春日", 1)
 	if err != nil {
+		if isNetworkBlocked(err) {
+			t.Skipf("skipping test due to network error/block: %v", err)
+		}
 		t.Fatalf("Search failed for '凉宫春日': %v", err)
 	}
 	if len(results) == 0 {
