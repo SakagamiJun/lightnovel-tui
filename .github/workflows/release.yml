@@ -36,7 +36,7 @@ jobs:
       skip: ${{ steps.version.outputs.skip }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -101,7 +101,7 @@ jobs:
 
     steps:
       - name: Checkout tagged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-version.outputs.tag }}
 
@@ -136,7 +136,7 @@ jobs:
     if: needs.prepare-version.outputs.skip != 'true'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-version.outputs.tag }}
           fetch-depth: 0
@@ -187,7 +187,7 @@ jobs:
     if: needs.prepare-version.outputs.skip != 'true'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-version.outputs.tag }}
 
