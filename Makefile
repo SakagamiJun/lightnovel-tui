@@ -8,9 +8,9 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -s -w \
-	-X github.com/SakagamiJun/lnovel_tui/pkg/version.Version=$(VERSION) \
-	-X github.com/SakagamiJun/lnovel_tui/pkg/version.GitCommit=$(GIT_COMMIT) \
-	-X github.com/SakagamiJun/lnovel_tui/pkg/version.BuildDate=$(BUILD_DATE)
+	-X github.com/SakagamiJun/lightnovel-tui/pkg/version.Version=$(VERSION) \
+	-X github.com/SakagamiJun/lightnovel-tui/pkg/version.GitCommit=$(GIT_COMMIT) \
+	-X github.com/SakagamiJun/lightnovel-tui/pkg/version.BuildDate=$(BUILD_DATE)
 
 all: build
 

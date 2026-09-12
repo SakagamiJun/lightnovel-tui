@@ -19,9 +19,9 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 LDFLAGS="-s -w \
-  -X github.com/SakagamiJun/lnovel_tui/pkg/version.Version=${VERSION} \
-  -X github.com/SakagamiJun/lnovel_tui/pkg/version.GitCommit=${GIT_COMMIT} \
-  -X github.com/SakagamiJun/lnovel_tui/pkg/version.BuildDate=${BUILD_DATE}"
+  -X github.com/SakagamiJun/lightnovel-tui/pkg/version.Version=${VERSION} \
+  -X github.com/SakagamiJun/lightnovel-tui/pkg/version.GitCommit=${GIT_COMMIT} \
+  -X github.com/SakagamiJun/lightnovel-tui/pkg/version.BuildDate=${BUILD_DATE}"
 
 echo "==> Building for ${TARGET_OS}/${TARGET_ARCH} (version: ${VERSION}, commit: ${GIT_COMMIT})..."
 

@@ -17,26 +17,26 @@ FORMULA_FILE="${FORMULA_DIR}/lnr.rb"
 cat <<EOF > "$FORMULA_FILE"
 class Lnr < Formula
   desc "Modern, high-performance CLI & TUI light novel reader and downloader"
-  homepage "https://github.com/SakagamiJun/lnovel_tui"
+  homepage "https://github.com/SakagamiJun/lightnovel-tui"
   version "${CLEAN_VERSION}"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/SakagamiJun/lnovel_tui/releases/download/v#{version}/lnr-v#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-darwin-arm64.tar.gz"
       sha256 "${DARWIN_ARM64_SHA}"
     else
-      url "https://github.com/SakagamiJun/lnovel_tui/releases/download/v#{version}/lnr-v#{version}-darwin-amd64.tar.gz"
+      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-darwin-amd64.tar.gz"
       sha256 "${DARWIN_AMD64_SHA}"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/SakagamiJun/lnovel_tui/releases/download/v#{version}/lnr-v#{version}-linux-arm64.tar.gz"
+      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-linux-arm64.tar.gz"
       sha256 "${LINUX_ARM64_SHA}"
     else
-      url "https://github.com/SakagamiJun/lnovel_tui/releases/download/v#{version}/lnr-v#{version}-linux-amd64.tar.gz"
+      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-linux-amd64.tar.gz"
       sha256 "${LINUX_AMD64_SHA}"
     end
   end
@@ -44,7 +44,7 @@ class Lnr < Formula
   def install
     bin.install "lnr"
     bin.install "lnr-tui"
-    bin.install_symlink "lnr-tui" => "lnovel-tui"
+    bin.install_symlink "lnr-tui" => "lightnovel-tui"
 
     generate_completions_from_executable(bin/"lnr", "completion")
   end

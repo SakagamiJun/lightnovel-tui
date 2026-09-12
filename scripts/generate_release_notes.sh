@@ -68,4 +68,4 @@ if [[ -n "$others" ]]; then
 fi
 
 echo "---"
-echo "**Full Changelog**: https://github.com/SakagamiJun/lnovel_tui/commits/${TAG:-HEAD}"
+echo "**Full Changelog**: https://github.com/SakagamiJun/lightnovel-tui/commits/${TAG:-HEAD}"
