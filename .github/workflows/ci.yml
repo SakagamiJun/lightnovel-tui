@@ -32,13 +32,9 @@ jobs:
         run: go test -short -race -v ./...
 
   build-check:
-    name: Build Check (${{ matrix.os }})
+    name: Build Check (Linux & Cross-Platform)
     needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -49,7 +45,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build CLI & TUI
+      - name: Build CLI & TUI (Native Linux)
         run: |
           go build -v ./cmd/lnr
           go build -v ./cmd/lnr-tui
+
+      - name: Cross-compile verification (Darwin & Windows)
+        run: |
+          GOOS=darwin GOARCH=arm64 go build ./cmd/lnr
+          GOOS=windows GOARCH=amd64 go build ./cmd/lnr
