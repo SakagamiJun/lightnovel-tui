@@ -204,7 +204,7 @@ make test
 ---
 
 ## 鸣谢与生态致敬
-
+- [LightNovelReader](https://github.com/dmzz-yyhyy/LightNovelReader/) - 感谢出色的android 轻小说客户端为本项目提供了学习和参考。
 - [Charmbracelet](https://charm.sh/) - 打造了令人惊艳的现代终端交互基础库（`bubbletea`, `lipgloss`, `bubbles`）。
 - [Wenku8](https://www.wenku8.net/) - 提供优质的轻小说书目元数据与数字排版资源。
 - [Cobra](https://github.com/spf13/cobra) - 赋能 Go 语言一流的命令行交互结构设计。
