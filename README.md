@@ -1,18 +1,18 @@
 <div align="center">
-  <h1>LNOVEL_TUI (LNR)</h1>
+  <h1>Light Novel Reader TUI (LNR)</h1>
   <p><strong>极简、现代且高性能的跨平台轻小说终端阅读与下载工具</strong></p>
   <img alt="Go" src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" />
   <img alt="TUI" src="https://img.shields.io/badge/TUI-Bubble_Tea-00B4D8?style=flat-square" />
   <img alt="CLI" src="https://img.shields.io/badge/CLI-Cobra-4361EE?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
-  <img alt="Release" src="https://img.shields.io/github/v/release/SakagamiJun/lnovel_tui?style=flat-square&color=F05138" />
+  <img alt="Release" src="https://img.shields.io/github/v/release/SakagamiJun/lightnovel-tui?style=flat-square&color=F05138" />
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgray?style=flat-square" />
-  <img alt="Size" src="https://img.shields.io/github/repo-size/SakagamiJun/lnovel_tui?style=flat-square" />
+  <img alt="Size" src="https://img.shields.io/github/repo-size/SakagamiJun/lightnovel-tui?style=flat-square" />
   <br /><br />
-  <img src="./design.png" alt="lnovel_tui 界面预览" width="860" />
+  <img src="./design.png" alt="Light Novel Reader TUI 界面预览" width="860" />
 </div>
 
-`LNOVEL_TUI (lnr)` 是一款专为轻小说爱好者与极客打造的跨平台终端阅读与资源管理工具。本项目采用严格的整洁架构（Clean Architecture）设计，基于 Go 语言原生并发与流式处理机制构建，彻底摒弃臃肿的 Electron/Webview 技术栈，在微秒级响应与极低内存占用下，为您提供现代排版的沉浸式终端阅读体验与工业级 EPUB 导出能力。
+`Light Novel Reader TUI (lnr)` 是一款专为轻小说爱好者与极客打造的跨平台终端阅读与资源管理工具。本项目采用严格的整洁架构（Clean Architecture）设计，基于 Go 语言原生并发与流式处理机制构建，彻底摒弃臃肿的 Electron/Webview 技术栈，在微秒级响应与极低内存占用下，为您提供现代排版的沉浸式终端阅读体验与工业级 EPUB 导出能力。
 
 ---
 
@@ -96,7 +96,7 @@ brew install lnr
 
 ### 预编译二进制下载 (GitHub Releases)
 
-前往 [Releases 页面](https://github.com/SakagamiJun/lnovel_tui/releases) 下载适用于您系统的预编译归档包：
+前往 [Releases 页面](https://github.com/SakagamiJun/lightnovel-tui/releases) 下载适用于您系统的预编译归档包：
 - macOS (Apple Silicon / Intel)
 - Linux (x86_64 / ARM64)
 - Windows (x86_64)
@@ -107,15 +107,15 @@ brew install lnr
 
 若本地已配置 Go 1.25+ 环境：
 ```bash
-go install github.com/SakagamiJun/lnovel_tui/cmd/lnr@latest
-go install github.com/SakagamiJun/lnovel_tui/cmd/lnr-tui@latest
+go install github.com/SakagamiJun/lightnovel-tui/cmd/lnr@latest
+go install github.com/SakagamiJun/lightnovel-tui/cmd/lnr-tui@latest
 ```
 
 ### 源码编译
 
 ```bash
-git clone https://github.com/SakagamiJun/lnovel_tui.git
-cd lnovel_tui
+git clone https://github.com/SakagamiJun/lightnovel-tui.git
+cd lightnovel-tui
 make build
 ```
 编译生成的二进制位于 `bin/lnr` 与 `bin/lnr-tui`。
