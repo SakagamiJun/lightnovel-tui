@@ -1,6 +1,11 @@
 name: Dependabot Auto-Merge
 
-on: pull_request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -8,18 +13,48 @@ permissions:
 
 jobs:
   auto-merge:
-    name: Enable Auto-Merge for Dependabot
+    name: Auto-Merge Dependabot PR
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: >
+      (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
     steps:
-      - name: Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@v2
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Enable auto-merge
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Determine PR info
+        id: pr_info
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "pr_url=${{ github.event.pull_request.html_url }}" >> "$GITHUB_OUTPUT"
+            echo "is_dependabot=true" >> "$GITHUB_OUTPUT"
+          else
+            PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "No PR associated with workflow run."
+              exit 0
+            fi
+            AUTHOR=$(gh pr view "$PR_NUMBER" --json author -q .author.login)
+            if [[ "$AUTHOR" == "dependabot[bot]" || "$AUTHOR" == "app/dependabot" ]]; then
+              echo "is_dependabot=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_dependabot=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "pr_url=https://github.com/${{ github.repository }}/pull/$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attempt native auto-merge
+        if: github.event_name == 'pull_request' && steps.pr_info.outputs.is_dependabot == 'true'
+        run: |
+          gh pr merge --auto --squash "${{ steps.pr_info.outputs.pr_url }}" || echo "Native auto-merge requires branch protection; workflow_run will merge automatically when CI succeeds."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge after CI completion
+        if: github.event_name == 'workflow_run' && steps.pr_info.outputs.is_dependabot == 'true'
+        run: |
+          echo "CI completed successfully. Merging Dependabot PR #${{ steps.pr_info.outputs.pr_number }}..."
+          gh pr merge --squash "${{ steps.pr_info.outputs.pr_url }}"
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
