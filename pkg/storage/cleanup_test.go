@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 func TestStorageBreakdownAndCleanup(t *testing.T) {

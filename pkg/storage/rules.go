@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/text"
 )
 
 func (s *Storage) rulesFilePath() string {

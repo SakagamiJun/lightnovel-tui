@@ -3,7 +3,7 @@ package source
 import (
 	"context"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 // SearchType defines the search criterion (by title, author, etc.)

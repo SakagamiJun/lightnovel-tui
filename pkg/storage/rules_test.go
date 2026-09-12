@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/text"
 )
 
 func TestStorageRules(t *testing.T) {

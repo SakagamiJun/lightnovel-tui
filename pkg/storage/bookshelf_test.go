@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
 )
 
 type mockUpdateSource struct {

@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
 )
 
 // SortCriteria defines the sorting metric for books on the bookshelf.

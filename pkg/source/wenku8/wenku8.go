@@ -12,10 +12,10 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"github.com/SakagamiJun/lnovel_tui/internal/client"
-	"github.com/SakagamiJun/lnovel_tui/internal/encoding"
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/source"
+	"github.com/SakagamiJun/lightnovel-tui/internal/client"
+	"github.com/SakagamiJun/lightnovel-tui/internal/encoding"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
 )
 
 const (

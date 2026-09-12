@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 // Storage manages local disk caching of books, catalogs, chapters, and images.

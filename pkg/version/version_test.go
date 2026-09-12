@@ -69,7 +69,7 @@ func TestReleaseInfoUpdateComparison(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"tag_name": "v2.0.0",
-			"html_url": "https://github.com/SakagamiJun/lnovel_tui/releases/tag/v2.0.0",
+			"html_url": "https://github.com/SakagamiJun/lightnovel-tui/releases/tag/v2.0.0",
 			"published_at": "2026-09-11T00:00:00Z"
 		}`))
 	}))
@@ -78,7 +78,7 @@ func TestReleaseInfoUpdateComparison(t *testing.T) {
 	// Direct check struct logic
 	info := ReleaseInfo{
 		TagName:     "v2.0.0",
-		HTMLURL:     "https://github.com/SakagamiJun/lnovel_tui/releases/tag/v2.0.0",
+		HTMLURL:     "https://github.com/SakagamiJun/lightnovel-tui/releases/tag/v2.0.0",
 		PublishedAt: "2026-09-11T00:00:00Z",
 	}
 

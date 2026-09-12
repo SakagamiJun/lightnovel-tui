@@ -8,10 +8,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/source/wenku8"
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui"
-	"github.com/SakagamiJun/lnovel_tui/pkg/version"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source/wenku8"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/version"
 )
 
 func init() {

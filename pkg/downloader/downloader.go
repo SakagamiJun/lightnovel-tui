@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SakagamiJun/lnovel_tui/internal/client"
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/source"
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/internal/client"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 )
 
 // bufferPool provides reusable 32KB buffers to avoid allocation churn and keep memory minimal.

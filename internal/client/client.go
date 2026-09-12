@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SakagamiJun/lnovel_tui/internal/encoding"
+	"github.com/SakagamiJun/lightnovel-tui/internal/encoding"
 )
 
 const (

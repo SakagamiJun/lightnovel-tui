@@ -8,7 +8,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 // GetBookDetail fetches detailed information about a book.

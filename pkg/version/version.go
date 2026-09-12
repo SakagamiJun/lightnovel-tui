@@ -13,7 +13,7 @@ import (
 
 var (
 	// Version is injected at build time via -ldflags:
-	// -X github.com/SakagamiJun/lnovel_tui/pkg/version.Version=v1.0.0
+	// -X github.com/SakagamiJun/lightnovel-tui/pkg/version.Version=v1.0.0
 	Version   = ""
 	GitCommit = ""
 	BuildDate = ""
@@ -113,12 +113,12 @@ type ReleaseInfo struct {
 // CheckLatestRelease queries GitHub API to check if a newer version is available.
 // It is lightweight, respects timeouts, and uses streaming json decoding.
 func CheckLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/SakagamiJun/lnovel_tui/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/SakagamiJun/lightnovel-tui/releases/latest", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "github.com/SakagamiJun/lnovel_tui/"+GetVersion())
+	req.Header.Set("User-Agent", "github.com/SakagamiJun/lightnovel-tui/"+GetVersion())
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)

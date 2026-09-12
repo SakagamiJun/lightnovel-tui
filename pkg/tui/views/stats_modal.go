@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/theme"
 )
 
 var (

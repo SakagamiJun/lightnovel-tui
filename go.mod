@@ -1,4 +1,4 @@
-module github.com/SakagamiJun/lnovel_tui
+module github.com/SakagamiJun/lightnovel-tui
 
 go 1.26.0
 

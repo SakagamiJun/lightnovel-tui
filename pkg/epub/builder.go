@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/text"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/text"
 )
 
 // bufferPool provides reusable 32KB buffers for streaming zip writes.

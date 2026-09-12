@@ -14,11 +14,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
-	"github.com/SakagamiJun/lnovel_tui/pkg/text"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
-	"github.com/SakagamiJun/lnovel_tui/pkg/version"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/text"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/common"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/theme"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/version"
 )
 
 // AppConfig represents persisted user preferences.

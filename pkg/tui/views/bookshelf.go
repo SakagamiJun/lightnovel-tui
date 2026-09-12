@@ -10,11 +10,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/source"
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui/common"
-	"github.com/SakagamiJun/lnovel_tui/pkg/tui/theme"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/common"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/theme"
 )
 
 type updateCheckResultMsg struct {

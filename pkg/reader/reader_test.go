@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 )
 
 func TestReaderEngine(t *testing.T) {

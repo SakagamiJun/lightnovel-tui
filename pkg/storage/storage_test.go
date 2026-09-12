@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 func TestListCachedBooks(t *testing.T) {

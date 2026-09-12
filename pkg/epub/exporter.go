@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/downloader"
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
-	"github.com/SakagamiJun/lnovel_tui/pkg/storage"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/downloader"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 )
 
 // ExportOption configures how EPUB files are built and exported.

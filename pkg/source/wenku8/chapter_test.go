@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SakagamiJun/lnovel_tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 )
 
 func TestWenku8ChapterContent(t *testing.T) {
