@@ -6,8 +6,6 @@ VERSION="${VERSION:?VERSION must be set}"
 CLEAN_VERSION="${VERSION#v}"
 
 DARWIN_ARM64_SHA="${DARWIN_ARM64_SHA:-0000000000000000000000000000000000000000000000000000000000000000}"
-DARWIN_AMD64_SHA="${DARWIN_AMD64_SHA:-0000000000000000000000000000000000000000000000000000000000000000}"
-LINUX_ARM64_SHA="${LINUX_ARM64_SHA:-0000000000000000000000000000000000000000000000000000000000000000}"
 LINUX_AMD64_SHA="${LINUX_AMD64_SHA:-0000000000000000000000000000000000000000000000000000000000000000}"
 
 FORMULA_DIR="${TAP_DIR}/Formula"
@@ -25,17 +23,11 @@ class Lnr < Formula
     if Hardware::CPU.arm?
       url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-darwin-arm64.tar.gz"
       sha256 "${DARWIN_ARM64_SHA}"
-    else
-      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-darwin-amd64.tar.gz"
-      sha256 "${DARWIN_AMD64_SHA}"
     end
   end
 
   on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-linux-arm64.tar.gz"
-      sha256 "${LINUX_ARM64_SHA}"
-    else
+    if Hardware::CPU.intel?
       url "https://github.com/SakagamiJun/lightnovel-tui/releases/download/v#{version}/lnr-v#{version}-linux-amd64.tar.gz"
       sha256 "${LINUX_AMD64_SHA}"
     end

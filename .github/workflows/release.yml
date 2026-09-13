@@ -64,41 +64,17 @@ jobs:
             git push origin "$TAG"
           fi
 
-  build-and-package:
-    name: Build (${{ matrix.name }})
+  release:
+    name: Build & Publish (GoReleaser)
+    runs-on: ubuntu-latest
     needs: prepare-version
     if: needs.prepare-version.outputs.skip != 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: darwin-arm64
-            target_os: darwin
-            target_arch: arm64
-            archive: lnr-v${{ needs.prepare-version.outputs.version }}-darwin-arm64.tar.gz
-          - name: darwin-amd64
-            target_os: darwin
-            target_arch: amd64
-            archive: lnr-v${{ needs.prepare-version.outputs.version }}-darwin-amd64.tar.gz
-          - name: linux-amd64
-            target_os: linux
-            target_arch: amd64
-            archive: lnr-v${{ needs.prepare-version.outputs.version }}-linux-amd64.tar.gz
-          - name: linux-arm64
-            target_os: linux
-            target_arch: arm64
-            archive: lnr-v${{ needs.prepare-version.outputs.version }}-linux-arm64.tar.gz
-          - name: windows-amd64
-            target_os: windows
-            target_arch: amd64
-            archive: lnr-v${{ needs.prepare-version.outputs.version }}-windows-amd64.zip
-
     steps:
       - name: Checkout tagged commit
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare-version.outputs.tag }}
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -106,114 +82,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Package artifact
-        shell: bash
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
         env:
-          VERSION: ${{ needs.prepare-version.outputs.tag }}
-          TARGET_OS: ${{ matrix.target_os }}
-          TARGET_ARCH: ${{ matrix.target_arch }}
-          DIST_DIR: dist
-        run: |
-          set -euo pipefail
-          ./scripts/package.sh
-
-      - name: Upload packaged artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.name }}
-          path: dist/${{ matrix.archive }}
-          if-no-files-found: error
-
-  publish-release:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
-    needs: [prepare-version, build-and-package]
-    if: needs.prepare-version.outputs.skip != 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare-version.outputs.tag }}
-          fetch-depth: 0
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: release-assets
-          merge-multiple: true
-
-      - name: Generate master checksums.txt
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release-assets
-          sha256sum lnr-* > checksums.txt
-          cat checksums.txt
-
-      - name: Generate release notes
-        shell: bash
-        env:
-          TAG: ${{ needs.prepare-version.outputs.tag }}
-        run: |
-          set -euo pipefail
-          ./scripts/generate_release_notes.sh > release_notes.md
-          cat release_notes.md
-
-      - name: Publish Release to GitHub
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ needs.prepare-version.outputs.tag }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG_NAME" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-assets/* --repo "$REPO" --clobber
-          else
-            gh release create "$TAG_NAME" release-assets/* \
-              --repo "$REPO" \
-              --title "LightNovelReader ${TAG_NAME}" \
-              --notes-file release_notes.md
-          fi
-
-  sync-homebrew:
-    name: Sync Homebrew Formula
-    runs-on: ubuntu-latest
-    needs: [prepare-version, publish-release]
-    if: needs.prepare-version.outputs.skip != 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.prepare-version.outputs.tag }}
-
-      - name: Download release assets for checksum extraction
-        uses: actions/download-artifact@v8
-        with:
-          path: release-assets
-          merge-multiple: true
-
-      - name: Calculate SHA256 for Homebrew formula
-        id: sha
-        shell: bash
-        env:
-          VERSION: ${{ needs.prepare-version.outputs.version }}
-        run: |
-          set -euo pipefail
-          cd release-assets
-          echo "darwin_arm64_sha=$(sha256sum lnr-v${VERSION}-darwin-arm64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "darwin_amd64_sha=$(sha256sum lnr-v${VERSION}-darwin-amd64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "linux_arm64_sha=$(sha256sum lnr-v${VERSION}-linux-arm64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "linux_amd64_sha=$(sha256sum lnr-v${VERSION}-linux-amd64.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync Formula to Homebrew Tap
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           VERSION: ${{ needs.prepare-version.outputs.version }}
           TAG: ${{ needs.prepare-version.outputs.tag }}
-          DARWIN_ARM64_SHA: ${{ steps.sha.outputs.darwin_arm64_sha }}
-          DARWIN_AMD64_SHA: ${{ steps.sha.outputs.darwin_amd64_sha }}
-          LINUX_ARM64_SHA: ${{ steps.sha.outputs.linux_arm64_sha }}
-          LINUX_AMD64_SHA: ${{ steps.sha.outputs.linux_amd64_sha }}
         run: |
           set -euo pipefail
           if [[ -z "${PAT_TOKEN:-}" ]]; then
@@ -221,13 +103,14 @@ jobs:
             exit 0
           fi
 
+          DARWIN_ARM64_SHA="$(grep 'darwin-arm64' dist/checksums.txt | awk '{print $1}')"
+          LINUX_AMD64_SHA="$(grep 'linux-amd64' dist/checksums.txt | awk '{print $1}')"
+
           git clone "https://x-access-token:${PAT_TOKEN}@github.com/SakagamiJun/homebrew-tap.git" /tmp/homebrew-tap
 
           TAP_DIR=/tmp/homebrew-tap \
           VERSION="$VERSION" \
           DARWIN_ARM64_SHA="$DARWIN_ARM64_SHA" \
-          DARWIN_AMD64_SHA="$DARWIN_AMD64_SHA" \
-          LINUX_ARM64_SHA="$LINUX_ARM64_SHA" \
           LINUX_AMD64_SHA="$LINUX_AMD64_SHA" \
           ./scripts/update_formula.sh
 
