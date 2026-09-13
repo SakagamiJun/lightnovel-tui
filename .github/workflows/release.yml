@@ -68,33 +68,28 @@ jobs:
     name: Build (${{ matrix.name }})
     needs: prepare-version
     if: needs.prepare-version.outputs.skip != 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: darwin-arm64
-            os: macos-latest
             target_os: darwin
             target_arch: arm64
             archive: lnr-v${{ needs.prepare-version.outputs.version }}-darwin-arm64.tar.gz
           - name: darwin-amd64
-            os: macos-latest
             target_os: darwin
             target_arch: amd64
             archive: lnr-v${{ needs.prepare-version.outputs.version }}-darwin-amd64.tar.gz
           - name: linux-amd64
-            os: ubuntu-latest
             target_os: linux
             target_arch: amd64
             archive: lnr-v${{ needs.prepare-version.outputs.version }}-linux-amd64.tar.gz
           - name: linux-arm64
-            os: ubuntu-latest
             target_os: linux
             target_arch: arm64
             archive: lnr-v${{ needs.prepare-version.outputs.version }}-linux-arm64.tar.gz
           - name: windows-amd64
-            os: windows-latest
             target_os: windows
             target_arch: amd64
             archive: lnr-v${{ needs.prepare-version.outputs.version }}-windows-amd64.zip

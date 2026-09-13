@@ -7,10 +7,10 @@ cd "$ROOT"
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "dev")}"
 CLEAN_VERSION="${VERSION#v}"
 DIST_DIR="${DIST_DIR:-dist}"
+mkdir -p "$DIST_DIR"
+DIST_DIR="$(cd "$DIST_DIR" && pwd)"
 TARGET_OS="${TARGET_OS:-$(go env GOOS)}"
 TARGET_ARCH="${TARGET_ARCH:-$(go env GOARCH)}"
-
-mkdir -p "$DIST_DIR"
 
 STAGE_DIR="$(mktemp -d /tmp/lnr-package-XXXXXX)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
@@ -26,11 +26,11 @@ ARCHIVE_NAME="lnr-v${CLEAN_VERSION}-${TARGET_OS}-${TARGET_ARCH}"
 if [[ "$TARGET_OS" == "windows" ]]; then
   ARCHIVE_FILE="${ARCHIVE_NAME}.zip"
   if command -v zip >/dev/null 2>&1; then
-    (cd "$STAGE_DIR" && zip -q -r "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+    (cd "$STAGE_DIR" && zip -q -r "${DIST_DIR}/${ARCHIVE_FILE}" .)
   elif command -v 7z >/dev/null 2>&1; then
-    (cd "$STAGE_DIR" && 7z a -bd -bso0 "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+    (cd "$STAGE_DIR" && 7z a -bd -bso0 "${DIST_DIR}/${ARCHIVE_FILE}" .)
   else
-    (cd "$STAGE_DIR" && tar -a -cf "${ROOT}/${DIST_DIR}/${ARCHIVE_FILE}" .)
+    (cd "$STAGE_DIR" && tar -a -cf "${DIST_DIR}/${ARCHIVE_FILE}" .)
   fi
 else
   ARCHIVE_FILE="${ARCHIVE_NAME}.tar.gz"
