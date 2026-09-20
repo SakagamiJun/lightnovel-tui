@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.8
-	github.com/mattn/go-runewidth v0.0.29
+	github.com/mattn/go-runewidth v0.0.30
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/net v0.59.0
 	golang.org/x/text v0.42.0
