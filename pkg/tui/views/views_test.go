@@ -725,6 +725,125 @@ func writeTestCover(t *testing.T, path string, width, height int) {
 	}
 }
 
+func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_gallery"
+	const chapterID = "ch_illustrations"
+	urls := []string{
+		"https://example.com/gallery_1.png",
+		"https://example.com/gallery_2.png",
+	}
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:       "vol_1",
+			Title:    "第一卷",
+			Chapters: []model.Chapter{{ID: chapterID, Title: "插图"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	elements := make([]model.ContentElement, 0, len(urls))
+	for _, u := range urls {
+		elements = append(elements, model.ContentElement{Type: model.ContentTypeImage, URL: u})
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:       chapterID,
+		BookID:   bookID,
+		Title:    "插图",
+		Elements: elements,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsIllustrationOnly() {
+		t.Fatalf("expected chapter to be illustration-only")
+	}
+	for i, u := range urls {
+		writeTestCover(t, r.IllustrationPath(u), 320+i*20, 480)
+	}
+
+	var out bytes.Buffer
+	rv := &ReaderView{
+		store:     store,
+		reader:    r,
+		bookID:    bookID,
+		chapterID: chapterID,
+		width:     80,
+		height:    30,
+	}
+	rv.SetSize(80, 30)
+	rv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+
+	_, cmd := rv.Update(chapterContentLoadedMsg{engine: r})
+	if cmd == nil {
+		t.Fatalf("expected automatic gallery image load")
+	}
+	if !rv.galleryMode || !rv.showImageModal {
+		t.Fatalf("expected gallery mode, got gallery=%v modal=%v", rv.galleryMode, rv.showImageModal)
+	}
+	loaded, ok := cmd().(illustrationLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("gallery image load failed: %+v", loaded)
+	}
+	rv.Update(loaded)
+
+	view := rv.View()
+	if !strings.Contains(view, "插图欣赏") || !strings.Contains(view, "[1/2]") {
+		t.Errorf("expected gallery header with counter, got: %s", view)
+	}
+	if !strings.Contains(view, "上一张/下一张") || !strings.Contains(view, "[Esc] 返回目录") {
+		t.Errorf("expected gallery hint footer, got: %s", view)
+	}
+	if got, want := strings.Count(view, string(rune(0x10EEEE))), rv.imageCols*rv.imageRows; got != want {
+		t.Errorf("placeholder count = %d, want %d", got, want)
+	}
+	if lines := strings.Count(view, "\n") + 1; lines != 30 {
+		t.Errorf("gallery rendered %d lines, want 30", lines)
+	}
+	if strings.Contains(view, "第 1/2 行") {
+		t.Errorf("gallery should not render the text viewport status")
+	}
+
+	// Navigate to the second image and verify progress records the image index.
+	_, nextCmd := rv.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if nextCmd == nil {
+		t.Fatalf("expected next image command")
+	}
+	next, ok := nextCmd().(illustrationLoadedMsg)
+	if !ok || next.err != nil {
+		t.Fatalf("second gallery image load failed: %+v", next)
+	}
+	rv.Update(next)
+	if rv.imageIndex != 1 {
+		t.Fatalf("imageIndex = %d, want 1", rv.imageIndex)
+	}
+	_, backCmd := rv.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if backCmd == nil {
+		t.Fatalf("expected back command on Esc")
+	}
+	if _, ok := backCmd().(common.SwitchViewMsg); !ok {
+		t.Fatalf("expected SwitchViewMsg on gallery exit, got %T", backCmd())
+	}
+	p, err := r.LoadProgress()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p == nil || p.ImageIndex != 1 || p.ChapterID != chapterID {
+		t.Fatalf("unexpected gallery progress: %+v", p)
+	}
+}
+
 func TestBookshelfPinningAndDeletion(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "bookshelf-test-*")
 	if err != nil {

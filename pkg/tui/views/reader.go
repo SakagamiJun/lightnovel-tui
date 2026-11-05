@@ -65,6 +65,7 @@ type ReaderView struct {
 
 	// Illustration viewer modal state
 	showImageModal bool
+	galleryMode    bool
 	imageIndex     int
 	imageLoading   bool
 	imagePath      string
@@ -182,6 +183,20 @@ func (v *ReaderView) modalWidths() (modalW, innerW int) {
 
 // imageArea returns the maximum placeholder grid that fits inside the modal.
 func (v *ReaderView) imageArea() (maxCols, maxRows int) {
+	if v.galleryMode {
+		maxCols = v.width - 4
+		if maxCols < 8 {
+			maxCols = 8
+		}
+		maxRows = v.height - 4
+		if maxRows < 1 {
+			maxRows = 1
+		}
+		if maxRows > 64 {
+			maxRows = 64
+		}
+		return maxCols, maxRows
+	}
 	_, innerW := v.modalWidths()
 	maxCols = innerW - 2
 	if maxCols < 8 {
@@ -227,6 +242,7 @@ func (v *ReaderView) beginImageLoad(index int) uint64 {
 func (v *ReaderView) resetImageState() tea.Cmd {
 	v.imageGen.Add(1)
 	v.showImageModal = false
+	v.galleryMode = false
 	v.imageIndex = 0
 	v.imageLoading = false
 	v.imageErr = nil
@@ -420,6 +436,25 @@ func (v *ReaderView) currentTheme() theme.ReaderTheme {
 	return theme.GetReaderTheme(theme.ReaderThemeID(v.themeIndex))
 }
 
+// saveProgress persists the current reading position. Gallery chapters use
+// the image index, text chapters use the viewport line offset.
+func (v *ReaderView) saveProgress() {
+	if v.reader == nil {
+		return
+	}
+	p := &reader.ReadingProgress{
+		BookID:     v.bookID,
+		ChapterID:  v.chapterID,
+		LastReadAt: time.Now().Unix(),
+	}
+	if v.galleryMode {
+		p.ImageIndex = v.imageIndex
+	} else {
+		p.LineIndex = v.viewport.YOffset
+	}
+	_ = v.reader.SaveProgress(p)
+}
+
 func (v *ReaderView) refreshViewportContent() {
 	if v.reader == nil {
 		return
@@ -446,18 +481,39 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	case chapterContentLoadedMsg:
 		v.loading = false
 		v.err = msg.err
+		v.galleryMode = false
 		if msg.engine != nil {
 			v.reader = msg.engine
 		}
 		if v.err == nil && v.reader != nil {
+			var saved *reader.ReadingProgress
+			if p, err := v.reader.LoadProgress(); err == nil && p != nil && p.ChapterID == v.chapterID {
+				saved = p
+			}
+
+			// A chapter containing only illustrations opens directly as a
+			// full-screen gallery, with no [i] step.
+			if v.kittyCapable && v.reader.IsIllustrationOnly() {
+				v.showImageModal = true
+				v.galleryMode = true
+				index := 0
+				if saved != nil && saved.ImageIndex > 0 {
+					index = saved.ImageIndex
+				}
+				if total := v.totalIllustrations(); index >= total {
+					index = total - 1
+				}
+				if index < 0 {
+					index = 0
+				}
+				return v, v.startImageLoad(index)
+			}
+
 			v.refreshViewportContent()
 			v.viewport.GotoTop()
-
-			// Check if bookmark exists
-			p, err := v.reader.LoadProgress()
-			if err == nil && p != nil && p.ChapterID == v.chapterID {
+			if saved != nil {
 				// Scroll to saved position
-				v.viewport.SetYOffset(p.LineIndex)
+				v.viewport.SetYOffset(saved.LineIndex)
 			}
 		}
 		return v, nil
@@ -516,6 +572,42 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	case tea.KeyMsg:
 		// Modal interaction when viewing illustration
 		if v.showImageModal {
+			if v.galleryMode {
+				switch msg.String() {
+				case "esc", "q":
+					v.saveProgress()
+					return v, func() tea.Msg {
+						return common.SwitchViewMsg{
+							Target: common.ViewCatalog,
+							BookID: v.bookID,
+						}
+					}
+				case "i", "I":
+					return v, nil
+				case "left", "h", "[", "p", "up", "k":
+					if v.imageIndex > 0 {
+						cmd := v.startImageLoad(v.imageIndex - 1)
+						v.saveProgress()
+						return v, cmd
+					}
+					return v, nil
+				case "right", "l", "]", "n", "down", "j":
+					if v.imageIndex < v.totalIllustrations()-1 {
+						cmd := v.startImageLoad(v.imageIndex + 1)
+						v.saveProgress()
+						return v, cmd
+					}
+					return v, nil
+				case "enter", " ", "space", "o", "O":
+					if v.imagePath != "" {
+						_ = termimage.OpenInSystemViewer(v.imagePath)
+					}
+					return v, nil
+				default:
+					return v, nil
+				}
+			}
+
 			switch msg.String() {
 			case "esc", "i", "I", "q":
 				return v, v.resetImageState()
@@ -542,7 +634,8 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		// Regular text reading interaction
 		switch msg.String() {
 		case "i", "I":
-			if v.err == nil && !v.loading && v.totalIllustrations() > 0 {
+			// Unsupported terminals keep the metadata modal as a fallback.
+			if !v.kittyCapable && v.err == nil && !v.loading && v.totalIllustrations() > 0 {
 				v.showImageModal = true
 				return v, v.startImageLoad(0)
 			}
@@ -566,12 +659,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		case "[", "p":
 			if v.reader != nil {
 				if prevID, _, ok := v.reader.PrevChapter(); ok {
-					_ = v.reader.SaveProgress(&reader.ReadingProgress{
-						BookID:     v.bookID,
-						ChapterID:  v.chapterID,
-						LineIndex:  v.viewport.YOffset,
-						LastReadAt: time.Now().Unix(),
-					})
+					v.saveProgress()
 					return v, v.OpenChapter(v.bookID, prevID)
 				}
 			}
@@ -580,12 +668,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		case "]", "n":
 			if v.reader != nil {
 				if nextID, _, ok := v.reader.NextChapter(); ok {
-					_ = v.reader.SaveProgress(&reader.ReadingProgress{
-						BookID:     v.bookID,
-						ChapterID:  v.chapterID,
-						LineIndex:  v.viewport.YOffset,
-						LastReadAt: time.Now().Unix(),
-					})
+					v.saveProgress()
 					return v, v.OpenChapter(v.bookID, nextID)
 				}
 			}
@@ -593,14 +676,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 
 		case "esc":
 			// Save progress on exit
-			if v.reader != nil {
-				_ = v.reader.SaveProgress(&reader.ReadingProgress{
-					BookID:     v.bookID,
-					ChapterID:  v.chapterID,
-					LineIndex:  v.viewport.YOffset,
-					LastReadAt: time.Now().Unix(),
-				})
-			}
+			v.saveProgress()
 			return v, func() tea.Msg {
 				return common.SwitchViewMsg{
 					Target: common.ViewCatalog,
@@ -626,6 +702,9 @@ func (v *ReaderView) View() string {
 	}
 
 	if v.showImageModal {
+		if v.galleryMode {
+			return v.renderGalleryView()
+		}
 		return v.renderImageModal()
 	}
 
@@ -720,6 +799,116 @@ func (v *ReaderView) View() string {
 		Render(bottomBar)
 
 	return topBar + "\n" + v.viewport.View() + "\n" + bottomBar
+}
+
+// renderGalleryView shows an illustration-only chapter as a full-screen image
+// gallery, replacing the text viewport entirely.
+func (v *ReaderView) renderGalleryView() string {
+	width := v.width
+	if width < 20 {
+		width = 20
+	}
+	height := v.height
+	if height < 4 {
+		height = 4
+	}
+	curTheme := v.currentTheme()
+	total := v.totalIllustrations()
+
+	title := ""
+	if v.reader != nil && v.reader.CurrentChapter() != nil {
+		title = v.reader.CurrentChapter().Title
+	}
+	if v.reader != nil && v.reader.IsTraditional() {
+		title = text.ToTraditional(title)
+	}
+
+	headerText := fmt.Sprintf(" 插图欣赏  [%d/%d]  %s", v.imageIndex+1, total, title)
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(curTheme.Text).
+		Background(curTheme.BarBg).
+		Width(width).
+		Render(theme.TruncateANSI(headerText, width, "..."))
+
+	footerText := " [←/→] 上一张/下一张  •  [o] 系统预览  •  [Esc] 返回目录"
+	footer := lipgloss.NewStyle().
+		Foreground(curTheme.Muted).
+		Background(curTheme.BarBg).
+		Width(width).
+		Render(theme.TruncateANSI(footerText, width, "..."))
+
+	areaHeight := height - 2
+	if areaHeight < 1 {
+		areaHeight = 1
+	}
+
+	center := func(s string) string {
+		lineWidth := lipgloss.Width(s)
+		if lineWidth >= width {
+			return s
+		}
+		left := (width - lineWidth) / 2
+		return strings.Repeat(" ", left) + s
+	}
+
+	body := make([]string, 0, areaHeight)
+	switch {
+	case v.imageLoading:
+		body = append(body, center(lipgloss.NewStyle().
+			Foreground(theme.TextMuted).
+			Render("[加载中] 正在获取插图，请稍候...")))
+	case v.imageErr != nil:
+		body = append(body, center(lipgloss.NewStyle().
+			Foreground(theme.AccentRose).
+			Render(fmt.Sprintf("[错误] 插图加载失败: %v", v.imageErr))))
+	case v.imageKittyErr != nil:
+		body = append(body, center(lipgloss.NewStyle().
+			Foreground(theme.AccentRose).
+			Render(fmt.Sprintf("[提示] Kitty 渲染失败: %v", v.imageKittyErr))))
+		if v.imagePath != "" {
+			body = append(body, "", center(lipgloss.NewStyle().
+				Foreground(theme.TextMuted).
+				Render("按 [o] 使用系统预览打开高清原图")))
+		}
+	case len(v.imageGrid) > 0 && v.imageCols > 0:
+		cols := v.imageCols
+		if cols > width {
+			cols = width
+		}
+		for _, gridLine := range v.imageGrid {
+			left := (width - cols) / 2
+			if left < 0 {
+				left = 0
+			}
+			right := width - left - cols
+			if right < 0 {
+				right = 0
+			}
+			body = append(body, strings.Repeat(" ", left)+gridLine+strings.Repeat(" ", right))
+		}
+	default:
+		body = append(body, center(lipgloss.NewStyle().
+			Foreground(theme.TextMuted).
+			Render(fmt.Sprintf("插图 %d/%d，按 [o] 使用系统预览", v.imageIndex+1, total))))
+	}
+
+	top := (areaHeight - len(body)) / 2
+	if top < 0 {
+		top = 0
+	}
+	lines := make([]string, 0, height)
+	lines = append(lines, header)
+	for i := 0; i < areaHeight; i++ {
+		bodyIndex := i - top
+		if bodyIndex >= 0 && bodyIndex < len(body) {
+			lines = append(lines, body[bodyIndex])
+		} else {
+			lines = append(lines, "")
+		}
+	}
+	lines = append(lines, footer)
+	return strings.Join(lines, "\n")
 }
 
 func (v *ReaderView) renderImageModal() string {

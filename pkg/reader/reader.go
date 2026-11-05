@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
@@ -18,6 +19,7 @@ type ReadingProgress struct {
 	VolumeID   string `json:"volume_id"`
 	ChapterID  string `json:"chapter_id"`
 	LineIndex  int    `json:"line_index"`
+	ImageIndex int    `json:"image_index,omitempty"`
 	LastReadAt int64  `json:"last_read_at"`
 }
 
@@ -108,6 +110,20 @@ func (r *Reader) Lines() []string {
 // Illustrations returns the list of illustration image URLs in the current chapter.
 func (r *Reader) Illustrations() []string {
 	return r.illustrations
+}
+
+// IsIllustrationOnly reports whether the current chapter contains images and
+// no readable text. Such chapters are shown as a full-screen gallery.
+func (r *Reader) IsIllustrationOnly() bool {
+	if r.currChapter == nil || len(r.illustrations) == 0 {
+		return false
+	}
+	for _, el := range r.currChapter.Elements {
+		if el.Type == model.ContentTypeText && strings.TrimSpace(el.Text) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // IllustrationPath returns the local cached path for a given illustration image URL.
