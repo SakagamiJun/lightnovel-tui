@@ -106,9 +106,10 @@ type ReaderView struct {
 
 	// Mixed text/illustration state. inlineImages are prepared during chapter
 	// load so placeholders can reserve stable line counts from the start.
-	inlineImages []inlineImage
-	inlineLayout atomic.Uint64
-	chapterGen   atomic.Uint64
+	inlineImages       []inlineImage
+	inlineContentWidth int
+	inlineLayout       atomic.Uint64
+	chapterGen         atomic.Uint64
 
 	// Reader color theme preset
 	themeIndex int
@@ -617,6 +618,7 @@ func (v *ReaderView) refreshInlineViewportContent() {
 		visual = append(visual, textStyle.Render(line), "")
 	}
 	v.viewport.SetContent(strings.Join(visual, "\n"))
+	v.inlineContentWidth = v.width
 }
 
 func (v *ReaderView) renderInlineImageBlock(index int) []string {
@@ -704,13 +706,17 @@ func (v *ReaderView) reflowInlineImages() tea.Cmd {
 		placements = append(placements, placement{id: img.id, cols: cols, rows: rows})
 		changed = true
 	}
-	if !changed {
+	widthChanged := v.inlineContentWidth != v.width
+	if !changed && !widthChanged {
 		return nil
 	}
 
 	percent := v.viewport.ScrollPercent()
 	v.refreshViewportContent()
 	v.viewport.SetYOffset(int(percent * float64(v.viewport.TotalLineCount())))
+	if !changed {
+		return nil
+	}
 
 	gen := v.chapterGen.Load()
 	layout := v.inlineLayout.Add(1)
