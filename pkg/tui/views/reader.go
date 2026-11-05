@@ -65,8 +65,9 @@ type illustrationLoadedMsg struct {
 	err      error
 }
 
-// ReaderView renders chapter content using a scrollable viewport,
-// with an integrated in-terminal illustration viewer modal.
+// ReaderView renders chapter content using a scrollable viewport with inline
+// illustrations. Image-only chapters use a full-screen gallery; unsupported
+// terminals keep the metadata modal fallback.
 type ReaderView struct {
 	store     *storage.Storage
 	src       source.DataSource
@@ -941,8 +942,9 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			v.saveProgress()
 			return v, v.OpenChapter(v.bookID, v.chapterID)
 		}
-		// Re-upload the current illustration when the modal is still open.
-		if v.showImageModal && v.kittyImageID != 0 {
+		// Re-upload the current illustration when a gallery or modal is still
+		// open. Restarting also covers a load that was interrupted by suspend.
+		if v.showImageModal && (v.kittyImageID != 0 || v.galleryMode) {
 			return v, v.startImageLoad(v.imageIndex)
 		}
 
