@@ -316,25 +316,29 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 		v.showExportModal = false
 		v.flattenItems()
 
-		v.cover.url = ""
-		v.cover.path = ""
 		v.cover.loading = false
 		v.cover.err = nil
 		v.cover.grid = nil
 		v.cover.cols = 0
 		v.cover.rows = 0
+		coverURL := ""
+		coverPath := ""
 		if msg.err == nil && msg.detail != nil {
-			v.cover.url = msg.detail.CoverURL
+			coverURL = msg.detail.CoverURL
 			if v.store != nil {
-				v.cover.path = v.store.FindCoverPath(v.bookID)
+				coverPath = v.store.FindCoverPath(v.bookID)
 			}
 		}
+		v.cover.Configure(v.store, v.src, v.bookID, coverURL, coverPath, CoverOwnerCatalog)
 		if cmd := v.startCoverLoadIfNeeded(); cmd != nil {
 			return v, cmd
 		}
 		return v, nil
 
-	case catalogCoverLoadedMsg:
+	case CoverLoadedMsg:
+		if msg.Owner() != CoverOwnerCatalog {
+			return v, nil
+		}
 		return v, v.updateCover(msg)
 
 	case tea.ResumeMsg:
@@ -342,12 +346,7 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 		// it was visible before the suspend.
 		c := &v.cover
 		if v.coverPaneWidth() > 0 && (c.imageID != 0 || len(c.grid) > 0) {
-			c.gen.Add(1)
-			c.loading = false
-			c.grid = nil
-			c.cols = 0
-			c.rows = 0
-			c.imageID = 0
+			c.ClearForReupload()
 			return v, v.startCoverLoadIfNeeded()
 		}
 

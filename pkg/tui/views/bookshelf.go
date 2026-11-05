@@ -46,6 +46,9 @@ type BookshelfView struct {
 	onSelect          func(bookID string) tea.Cmd
 	onContinueReading func(bookID, chapterID string) tea.Cmd
 	onExport          func(bookID string, volumeIndex int) tea.Cmd
+
+	// Cover preview state (right-side panel for the selected book).
+	cover coverPreview
 }
 
 // NewBookshelfView constructs bookshelf model.
@@ -340,8 +343,29 @@ func (v *BookshelfView) checkUpdatesCmd() tea.Cmd {
 	}
 }
 
+// Update wraps the view update loop and keeps the selected cover preview in
+// sync after cursor movement, tab activation, resizes and cover load results.
 func (v *BookshelfView) Update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
+	next, cmd := v.update(msg)
+	if _, ok := msg.(tea.ResumeMsg); ok && (next.cover.imageID != 0 || len(next.cover.grid) > 0) {
+		next.cover.ClearForReupload()
+	}
+	coverCmd := next.syncSelectedCover()
+	switch {
+	case cmd == nil:
+		return next, coverCmd
+	case coverCmd == nil:
+		return next, cmd
+	default:
+		return next, tea.Batch(cmd, coverCmd)
+	}
+}
+
+func (v *BookshelfView) update(msg tea.Msg) (*BookshelfView, tea.Cmd) {
 	switch msg := msg.(type) {
+	case CoverLoadedMsg:
+		return v, v.HandleCoverLoaded(msg)
+
 	case updateCheckResultMsg:
 		v.checkingUpdates = false
 		v.updatesMap = msg.updates
@@ -713,6 +737,19 @@ func (v *BookshelfView) View() string {
 		return sb.String()
 	}
 
+	paneWidth := v.bookshelfCoverPaneWidth()
+	listWidth := maxWidth
+	if paneWidth > 0 {
+		listWidth = maxWidth - paneWidth - 1
+		if listWidth < 30 {
+			paneWidth = 0
+			listWidth = maxWidth
+		}
+	}
+
+	header := sb.String()
+	sb.Reset()
+
 	v.adjustOffset()
 	visible := v.visibleCards()
 	start := v.offset
@@ -723,7 +760,7 @@ func (v *BookshelfView) View() string {
 
 	if start > 0 {
 		msg := fmt.Sprintf("  ▲ 上方还有 %d 本藏书已折叠 (按 [g] 到顶部) ", start)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := listWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -731,7 +768,7 @@ func (v *BookshelfView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
-			Render(strings.Repeat("─", maxWidth)) + "\n")
+			Render(strings.Repeat("─", listWidth)) + "\n")
 	}
 
 	const (
@@ -810,7 +847,7 @@ func (v *BookshelfView) View() string {
 			if line1Badges != "" {
 				extraGap = 2
 			}
-			titleBudget := maxWidth - prefixWidth - badgesWidth - extraGap
+			titleBudget := listWidth - prefixWidth - badgesWidth - extraGap
 			if titleBudget < 10 {
 				titleBudget = 10
 			}
@@ -827,27 +864,27 @@ func (v *BookshelfView) View() string {
 				line1Content = fmt.Sprintf("%s%s", prefix,
 					lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).Render(titleTrunc))
 			}
-			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(maxWidth).Render(line1Content)
+			line1 := lipgloss.NewStyle().Background(theme.HighlightBg).Width(listWidth).Render(line1Content)
 
 			// Line 2: Rich Meta Info (Adaptive Spacing)
 			var metaContent string
-			if maxWidth >= 100 {
+			if listWidth >= 100 {
 				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
 					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			} else if maxWidth >= 80 {
+			} else if listWidth >= 80 {
 				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
 					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			} else {
 				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
 					barActiveIndent, b.Author, pubStr, wordCountStr, statusStr)
 			}
-			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
-			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(maxWidth).Render(line2Trunc)
+			line2Trunc := theme.TruncateANSI(metaContent, listWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.PrimaryLight).Background(theme.HighlightBg).Width(listWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barActiveIndent, desc)
-			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
-			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(maxWidth).Render(descTrunc)
+			descTrunc := theme.TruncateANSI(descContent, listWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Background(theme.HighlightBg).Width(listWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
 			sb.WriteString(line2 + "\n")
@@ -861,7 +898,7 @@ func (v *BookshelfView) View() string {
 			if line1Badges != "" {
 				extraGap = 2
 			}
-			titleBudget := maxWidth - prefixWidth - badgesWidth - extraGap
+			titleBudget := listWidth - prefixWidth - badgesWidth - extraGap
 			if titleBudget < 10 {
 				titleBudget = 10
 			}
@@ -878,27 +915,27 @@ func (v *BookshelfView) View() string {
 				line1Content = fmt.Sprintf("%s%s", prefix,
 					lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E2E8F0")).Render(titleTrunc))
 			}
-			line1 := lipgloss.NewStyle().Width(maxWidth).Render(line1Content)
+			line1 := lipgloss.NewStyle().Width(listWidth).Render(line1Content)
 
 			// Line 2: Rich Meta Info (Adaptive Spacing)
 			var metaContent string
-			if maxWidth >= 100 {
+			if listWidth >= 100 {
 				metaContent = fmt.Sprintf("%s作者: %s    文库: %s    字数: %s    状态: %s    ID: #%s",
 					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
-			} else if maxWidth >= 80 {
+			} else if listWidth >= 80 {
 				metaContent = fmt.Sprintf("%s作者: %s  文库: %s  字数: %s  状态: %s  #%s",
 					barInactive, b.Author, pubStr, wordCountStr, statusStr, b.ID)
 			} else {
 				metaContent = fmt.Sprintf("%s%s • %s • %s • %s",
 					barInactive, b.Author, pubStr, wordCountStr, statusStr)
 			}
-			line2Trunc := theme.TruncateANSI(metaContent, maxWidth, "...")
-			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(maxWidth).Render(line2Trunc)
+			line2Trunc := theme.TruncateANSI(metaContent, listWidth, "...")
+			line2 := lipgloss.NewStyle().Foreground(theme.TextMuted).Width(listWidth).Render(line2Trunc)
 
 			// Line 3: Description Preview
 			descContent := fmt.Sprintf("%s简介: %s", barInactive, desc)
-			descTrunc := theme.TruncateANSI(descContent, maxWidth, "...")
-			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(maxWidth).Render(descTrunc)
+			descTrunc := theme.TruncateANSI(descContent, listWidth, "...")
+			line3 := lipgloss.NewStyle().Foreground(theme.TextDim).Width(listWidth).Render(descTrunc)
 
 			sb.WriteString(line1 + "\n")
 			sb.WriteString(line2 + "\n")
@@ -909,7 +946,7 @@ func (v *BookshelfView) View() string {
 	if end < len(v.books) {
 		remaining := len(v.books) - end
 		msg := fmt.Sprintf("  ▼ 下方还有 %d 本藏书已折叠 (按 [G] 到底部) ", remaining)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := listWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -917,7 +954,7 @@ func (v *BookshelfView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		msg := fmt.Sprintf("  [全部] 已显示全部 %d 本藏书 ", len(v.books))
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := listWidth - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -925,5 +962,8 @@ func (v *BookshelfView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	}
 
-	return sb.String()
+	if paneWidth > 0 {
+		return header + lipgloss.JoinHorizontal(lipgloss.Top, sb.String(), " ", v.renderBookshelfCoverPane(paneWidth))
+	}
+	return header + sb.String()
 }

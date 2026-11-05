@@ -106,6 +106,7 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 		m.currentView = target
 		if target == common.ViewBookshelf {
 			m.bookshelfView.Reload()
+			return m.bookshelfView.Activate()
 		}
 		return nil
 	})
@@ -184,7 +185,21 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.readerView.OpenChapter(msg.BookID, msg.ChapID))
 		case common.ViewBookshelf:
 			m.bookshelfView.Reload()
+			cmds = append(cmds, m.bookshelfView.Activate())
 		}
+
+	case views.CoverLoadedMsg:
+		var coverCmds []tea.Cmd
+		if cmd := m.bookshelfView.HandleCoverLoaded(msg); cmd != nil {
+			coverCmds = append(coverCmds, cmd)
+		}
+		if cmd := m.catalogView.HandleCoverLoaded(msg); cmd != nil {
+			coverCmds = append(coverCmds, cmd)
+		}
+		if len(coverCmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(coverCmds...)
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -227,6 +242,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Tab navigation cycling across 4 main tabs
 		canSwitchTab := isMainTab && (m.currentView != common.ViewSettings || !m.settingsView.IsEditing())
 		if msg.String() == "tab" && canSwitchTab {
+			var activateCmd tea.Cmd
 			switch m.currentView {
 			case common.ViewBookshelf:
 				m.currentView = common.ViewExplore
@@ -237,10 +253,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case common.ViewSettings:
 				m.currentView = common.ViewBookshelf
 				m.bookshelfView.Reload()
+				activateCmd = m.bookshelfView.Activate()
 			}
-			return m, nil
+			return m, activateCmd
 		}
 		if msg.String() == "shift+tab" && canSwitchTab {
+			var activateCmd tea.Cmd
 			switch m.currentView {
 			case common.ViewBookshelf:
 				m.currentView = common.ViewSettings
@@ -251,8 +269,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case common.ViewExplore:
 				m.currentView = common.ViewBookshelf
 				m.bookshelfView.Reload()
+				activateCmd = m.bookshelfView.Activate()
 			}
-			return m, nil
+			return m, activateCmd
 		}
 	}
 
