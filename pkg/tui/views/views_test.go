@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/SakagamiJun/lightnovel-tui/pkg/epub"
 	termimage "github.com/SakagamiJun/lightnovel-tui/pkg/image"
@@ -1242,6 +1243,11 @@ func TestKittyIllustrationLoadIntegration(t *testing.T) {
 	}
 	if !strings.Contains(view, "Kitty 图形协议") {
 		t.Errorf("expected the modal to label Kitty rendering")
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if w := ansi.StringWidth(line); w > rv.width {
+			t.Errorf("line %d width = %d, exceeds reader width %d", i, w, rv.width)
+		}
 	}
 }
 
