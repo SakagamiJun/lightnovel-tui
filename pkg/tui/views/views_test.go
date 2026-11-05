@@ -725,6 +725,358 @@ func writeTestCover(t *testing.T, path string, width, height int) {
 	}
 }
 
+func TestMixedChapterRendersInlineImages(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_mixed"
+	const chapterID = "ch_mixed"
+	const imgURL = "https://example.com/mixed_illustration.png"
+	const imgURL2 = "https://example.com/mixed_illustration_2.png"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:       "vol_1",
+			Title:    "第一卷",
+			Chapters: []model.Chapter{{ID: chapterID, Title: "第一章 图文"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:     chapterID,
+		BookID: bookID,
+		Title:  "第一章 图文",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "第一段正文，故事从这里开始。"},
+			{Type: model.ContentTypeImage, URL: imgURL},
+			{Type: model.ContentTypeText, Text: "两幅插图之间的正文。"},
+			{Type: model.ContentTypeImage, URL: imgURL2},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatal(err)
+	}
+	if r.IsIllustrationOnly() {
+		t.Fatalf("mixed chapter should not be illustration-only")
+	}
+	imgPath := r.IllustrationPath(imgURL)
+	writeTestCover(t, imgPath, 640, 960)
+	writeTestCover(t, r.IllustrationPath(imgURL2), 960, 540)
+
+	var out bytes.Buffer
+	rv := NewReaderView(store, nil)
+	rv.SetSize(90, 30)
+	rv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+
+	cmd := rv.OpenChapter(bookID, chapterID)
+	if cmd == nil {
+		t.Fatalf("expected chapter load command")
+	}
+	msg, ok := cmd().(chapterContentLoadedMsg)
+	if !ok {
+		t.Fatalf("unexpected chapter message type")
+	}
+	if msg.err != nil {
+		t.Fatalf("chapter load failed: %v", msg.err)
+	}
+	if len(msg.inlineImages) != 2 {
+		t.Fatalf("inline images = %d, want 2", len(msg.inlineImages))
+	}
+	for i, img := range msg.inlineImages {
+		if img.err != nil || img.id == 0 || len(img.grid) == 0 {
+			t.Fatalf("inline image %d was not prepared: %+v", i, img)
+		}
+		if img.cols <= 20 || img.rows < 6 {
+			t.Errorf("inline image %d grid = %dx%d, expected a visible illustration", i, img.cols, img.rows)
+		}
+	}
+	if msg.inlineImages[0].id == msg.inlineImages[1].id {
+		t.Errorf("inline images reused the same terminal image id")
+	}
+	rv.Update(msg)
+
+	view := rv.View()
+	if !strings.Contains(view, "第一段正文") {
+		t.Errorf("inline view lost preceding prose, got: %s", view)
+	}
+	if strings.Contains(view, "按 [i]") {
+		t.Errorf("inline view should not keep the [i] badge hint, got: %s", view)
+	}
+	if !strings.Contains(view, "[已内联]") {
+		t.Errorf("expected inline illustration hint, got: %s", view)
+	}
+	if strings.Count(view, string(rune(0x10EEEE))) == 0 {
+		t.Errorf("inline view missing first image placeholders")
+	}
+	rv.viewport.SetYOffset(rv.inlineImages[0].rows)
+	midView := rv.View()
+	if !strings.Contains(midView, "第 1/2 张插图") {
+		t.Errorf("inline view missing first image caption, got: %s", midView)
+	}
+	if !strings.Contains(midView, "两幅插图之间的正文") {
+		t.Errorf("inline view lost interlaced prose, got: %s", midView)
+	}
+	rv.viewport.GotoBottom()
+	bottomView := rv.View()
+	if !strings.Contains(bottomView, "第 2/2 张插图") {
+		t.Errorf("inline view missing second image caption, got: %s", bottomView)
+	}
+	if strings.Count(bottomView, string(rune(0x10EEEE))) == 0 {
+		t.Errorf("inline view missing second image placeholders")
+	}
+	if lines := strings.Count(view, "\n") + 1; lines > 30 {
+		t.Errorf("inline view rendered %d lines, exceeds height 30", lines)
+	}
+	if got := strings.Count(out.String(), "\x1b_Ga=T,f=100"); got < 2 {
+		t.Errorf("terminal output has %d inline transmissions, want at least 2", got)
+	}
+
+	// Pressing [i] must not open the old modal in a Kitty-capable terminal.
+	rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if rv.showImageModal {
+		t.Errorf("inline chapter should not open the illustration modal")
+	}
+
+	// Traditional conversion changes the badge prefix; inline layout must
+	// still recognize it and keep images in place.
+	rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if !strings.Contains(rv.viewport.View(), string(rune(0x10EEEE))) {
+		t.Errorf("inlined illustration disappeared after traditional conversion")
+	}
+	if strings.Contains(rv.viewport.View(), "[插圖:") || strings.Contains(rv.viewport.View(), "[插图:") {
+		t.Errorf("traditional conversion exposed an illustration badge instead of inlining")
+	}
+}
+
+func TestMixedInlineImagesCleanupAndProgress(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_inline_cleanup"
+	const chapterID = "ch_inline_cleanup"
+	const imgURL = "https://example.com/cleanup.png"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:       "vol_1",
+			Title:    "第一卷",
+			Chapters: []model.Chapter{{ID: chapterID, Title: "图文"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	elements := make([]model.ContentElement, 0, 12)
+	for i := 0; i < 10; i++ {
+		elements = append(elements, model.ContentElement{Type: model.ContentTypeText, Text: fmt.Sprintf("前置段落 %d。", i+1)})
+	}
+	elements = append(elements,
+		model.ContentElement{Type: model.ContentTypeImage, URL: imgURL},
+		model.ContentElement{Type: model.ContentTypeText, Text: "第二段。"},
+	)
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:       chapterID,
+		BookID:   bookID,
+		Title:    "图文",
+		Elements: elements,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCover(t, r.IllustrationPath(imgURL), 640, 960)
+
+	var out bytes.Buffer
+	rv := NewReaderView(store, nil)
+	rv.SetSize(90, 30)
+	rv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+	msg := rv.OpenChapter(bookID, chapterID)()
+	rv.Update(msg)
+	rv.viewport.SetYOffset(3)
+	oldImageID := rv.inlineImages[0].id
+	if oldImageID == 0 {
+		t.Fatalf("expected a prepared inline image")
+	}
+
+	out.Reset()
+	_, cmd := rv.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatalf("expected reader exit command")
+	}
+	if _, ok := cmd().(common.SwitchViewMsg); !ok {
+		t.Fatalf("expected SwitchViewMsg on reader exit")
+	}
+	if rv.inlineImages != nil {
+		t.Errorf("inline images were not cleared on exit")
+	}
+	if !strings.Contains(out.String(), "\x1b_Ga=d") {
+		t.Errorf("terminal output missing inline image deletion")
+	}
+	p, err := r.LoadProgress()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p == nil || p.LineIndex != 3 {
+		t.Fatalf("unexpected text progress: %+v", p)
+	}
+}
+
+func TestMixedInlineImageReflow(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_inline_reflow"
+	const chapterID = "ch_inline_reflow"
+	const imgURL = "https://example.com/reflow.png"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:       "vol_1",
+			Title:    "第一卷",
+			Chapters: []model.Chapter{{ID: chapterID, Title: "图文"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:     chapterID,
+		BookID: bookID,
+		Title:  "图文",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "正文之前。"},
+			{Type: model.ContentTypeImage, URL: imgURL},
+			{Type: model.ContentTypeText, Text: "正文之后。"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCover(t, r.IllustrationPath(imgURL), 640, 960)
+
+	var out bytes.Buffer
+	rv := NewReaderView(store, nil)
+	rv.SetSize(90, 30)
+	rv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+	msg := rv.OpenChapter(bookID, chapterID)()
+	rv.Update(msg)
+	oldCols := rv.inlineImages[0].cols
+	oldRows := rv.inlineImages[0].rows
+
+	out.Reset()
+	rv.SetSize(60, 21)
+	_, cmd := rv.Update(tea.WindowSizeMsg{Width: 60, Height: 21})
+	if cmd == nil {
+		t.Fatalf("expected inline images to reflow after resize")
+	}
+	cmd()
+	if rv.inlineImages[0].cols >= oldCols {
+		t.Errorf("inline image width = %d, expected narrower than %d", rv.inlineImages[0].cols, oldCols)
+	}
+	if rv.inlineImages[0].rows > oldRows {
+		t.Errorf("inline image height = %d, expected <= %d", rv.inlineImages[0].rows, oldRows)
+	}
+	if !strings.Contains(out.String(), "\x1b_Ga=p") {
+		t.Errorf("expected a placement reflow after resize, output missing a=p")
+	}
+	view := rv.View()
+	if got, want := strings.Count(view, string(rune(0x10EEEE))), rv.inlineImages[0].cols*rv.inlineImages[0].rows; got != want {
+		t.Errorf("placeholder count after reflow = %d, want %d", got, want)
+	}
+}
+
+func TestMixedInlineImageFallbackWithoutKitty(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "off")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_inline_fallback"
+	const chapterID = "ch_inline_fallback"
+	const imgURL = "https://example.com/fallback.png"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:       "vol_1",
+			Title:    "第一卷",
+			Chapters: []model.Chapter{{ID: chapterID, Title: "图文"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:     chapterID,
+		BookID: bookID,
+		Title:  "图文",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeText, Text: "正文。"},
+			{Type: model.ContentTypeImage, URL: imgURL},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCover(t, r.IllustrationPath(imgURL), 320, 480)
+
+	rv := NewReaderView(store, nil)
+	rv.SetSize(80, 24)
+	rv.SetTerminalOutput(termimage.NewLockedWriter(&bytes.Buffer{}))
+	msg := rv.OpenChapter(bookID, chapterID)()
+	if msg.(chapterContentLoadedMsg).inlineImages != nil {
+		t.Fatalf("non-Kitty terminal should not prepare inline images")
+	}
+	rv.Update(msg)
+	view := rv.View()
+	if !strings.Contains(view, "按 [i]") {
+		t.Errorf("non-Kitty fallback should keep the [i] hint, got: %s", view)
+	}
+	if rv.showImageModal {
+		t.Errorf("fallback should not auto-open the modal")
+	}
+
+	_, cmd := rv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if cmd == nil {
+		t.Fatalf("expected fallback modal load command")
+	}
+	loaded, ok := cmd().(illustrationLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("fallback illustration load failed: %+v", loaded)
+	}
+	rv.Update(loaded)
+	if !rv.showImageModal || !strings.Contains(rv.View(), "插图查看器") {
+		t.Errorf("expected metadata illustration modal on non-Kitty terminal")
+	}
+}
+
 func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
 	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
 	store, err := storage.NewStorage(t.TempDir())
@@ -841,6 +1193,23 @@ func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
 	}
 	if p == nil || p.ImageIndex != 1 || p.ChapterID != chapterID {
 		t.Fatalf("unexpected gallery progress: %+v", p)
+	}
+
+	// Reopening the chapter resumes at the saved gallery page.
+	rv2 := NewReaderView(store, nil)
+	rv2.SetSize(80, 30)
+	rv2.SetTerminalOutput(termimage.NewLockedWriter(&bytes.Buffer{}))
+	loadCmd := rv2.OpenChapter(bookID, chapterID)
+	if loadCmd == nil {
+		t.Fatalf("expected chapter load command")
+	}
+	loadedMsg, ok := loadCmd().(chapterContentLoadedMsg)
+	if !ok || loadedMsg.err != nil {
+		t.Fatalf("reload failed: %+v", loadedMsg)
+	}
+	rv2.Update(loadedMsg)
+	if !rv2.galleryMode || rv2.imageIndex != 1 {
+		t.Fatalf("gallery did not resume at image 1: gallery=%v index=%d", rv2.galleryMode, rv2.imageIndex)
 	}
 }
 

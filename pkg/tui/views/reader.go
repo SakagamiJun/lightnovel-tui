@@ -28,7 +28,24 @@ import (
 )
 
 type chapterContentLoadedMsg struct {
-	engine *reader.Reader
+	engine       *reader.Reader
+	inlineImages []inlineImage
+	gen          uint64
+	err          error
+}
+
+// inlineImage is a mixed-chapter illustration prepared for the viewport.
+// Pixels are streamed to the terminal once; grid is the placeholder text that
+// reserves the same number of rows in the reading flow.
+type inlineImage struct {
+	url    string
+	path   string
+	width  int
+	height int
+	cols   int
+	rows   int
+	id     uint32
+	grid   []string
 	err    error
 }
 
@@ -86,6 +103,12 @@ type ReaderView struct {
 	imageRows     int
 	imageKittyErr error
 
+	// Mixed text/illustration state. inlineImages are prepared during chapter
+	// load so placeholders can reserve stable line counts from the start.
+	inlineImages []inlineImage
+	inlineLayout atomic.Uint64
+	chapterGen   atomic.Uint64
+
 	// Reader color theme preset
 	themeIndex int
 }
@@ -113,11 +136,14 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 	v.loading = true
 	v.err = nil
 	cleanup := v.resetImageState()
+	inlineCleanup := v.resetInlineState()
+	gen := v.chapterGen.Add(1)
+	width, height, kittyCapable := v.width, v.height, v.kittyCapable
 
 	loadCmd := func() tea.Msg {
 		r, err := reader.NewReader(v.store, bookID)
 		if err != nil {
-			return chapterContentLoadedMsg{err: err}
+			return chapterContentLoadedMsg{err: err, gen: gen}
 		}
 
 		// Ensure chapter cached
@@ -128,19 +154,35 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 			defer cancel()
 			ch, err := v.src.GetChapterContent(ctx, bookID, chapterID)
 			if err != nil {
-				return chapterContentLoadedMsg{err: err}
+				return chapterContentLoadedMsg{err: err, gen: gen}
 			}
 			_ = v.store.SaveChapter(ch)
 		}
 
-		_, err = r.LoadChapter(chapterID)
-		return chapterContentLoadedMsg{engine: r, err: err}
+		if _, err = r.LoadChapter(chapterID); err != nil {
+			return chapterContentLoadedMsg{engine: r, err: err, gen: gen}
+		}
+
+		msg := chapterContentLoadedMsg{engine: r, gen: gen}
+		// Mixed chapters preload and transmit illustrations before the text is
+		// shown, so every image block reserves a stable line count.
+		if kittyCapable && len(r.Illustrations()) > 0 && !r.IsIllustrationOnly() {
+			msg.inlineImages = v.prepareInlineImages(r, gen, width, height)
+		}
+		return msg
 	}
 
+	cmds := []tea.Cmd{loadCmd}
 	if cleanup != nil {
-		return tea.Batch(loadCmd, cleanup)
+		cmds = append(cmds, cleanup)
 	}
-	return loadCmd
+	if inlineCleanup != nil {
+		cmds = append(cmds, inlineCleanup)
+	}
+	if len(cmds) == 1 {
+		return loadCmd
+	}
+	return tea.Batch(cmds...)
 }
 
 func (v *ReaderView) Init() tea.Cmd {
@@ -393,6 +435,303 @@ func (v *ReaderView) deleteKittyImageCmd(imageID uint32) tea.Cmd {
 	}
 }
 
+// inlineImageAreaFor returns the image grid budget used inside the reading
+// flow. Images are a little inset from the viewport edges and never consume
+// more than forty rows, keeping the prose reachable.
+func (v *ReaderView) inlineImageAreaFor(width, height int) (maxCols, maxRows int) {
+	maxCols = width - 4
+	if maxCols < 16 {
+		maxCols = 16
+	}
+	maxRows = height - 4
+	if maxRows < 6 {
+		maxRows = 6
+	}
+	if maxRows > 40 {
+		maxRows = 40
+	}
+	return maxCols, maxRows
+}
+
+// prepareInlineImages downloads, decodes and transmits every illustration in a
+// mixed chapter. It runs inside the chapter load command so the viewport can be
+// laid out with known image dimensions and stable row counts.
+func (v *ReaderView) prepareInlineImages(r *reader.Reader, gen uint64, width, height int) []inlineImage {
+	urls := r.Illustrations()
+	if len(urls) == 0 || !v.kittyCapable || v.terminalOut == nil {
+		return nil
+	}
+	maxCols, maxRows := v.inlineImageAreaFor(width, height)
+	images := make([]inlineImage, 0, len(urls))
+	created := make([]uint32, 0, len(urls))
+
+	for _, imgURL := range urls {
+		if v.chapterGen.Load() != gen {
+			v.deleteKittyImagesNow(created)
+			return nil
+		}
+
+		img := inlineImage{url: imgURL, path: r.IllustrationPath(imgURL)}
+		if _, err := os.Stat(img.path); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			err = termimage.DownloadImageToFile(ctx, imgURL, img.path)
+			cancel()
+			if err != nil {
+				img.err = fmt.Errorf("下载插图失败: %w", err)
+				images = append(images, img)
+				continue
+			}
+		}
+
+		f, err := os.Open(img.path)
+		if err != nil {
+			img.err = err
+			images = append(images, img)
+			continue
+		}
+		cfg, _, decodeErr := stdimage.DecodeConfig(f)
+		_ = f.Close()
+		if decodeErr != nil {
+			img.err = fmt.Errorf("解析插图尺寸失败: %w", decodeErr)
+			images = append(images, img)
+			continue
+		}
+		if cfg.Width <= 0 || cfg.Height <= 0 {
+			img.err = fmt.Errorf("插图尺寸无效")
+			images = append(images, img)
+			continue
+		}
+
+		img.width = cfg.Width
+		img.height = cfg.Height
+		cols, rows := termimage.CalculateScaledDimensions(img.width, img.height, maxCols, maxRows)
+		if cols <= 0 || rows <= 0 {
+			img.err = fmt.Errorf("插图缩放尺寸无效")
+			images = append(images, img)
+			continue
+		}
+		img.cols = cols
+		img.rows = rows
+		newID := termimage.NewKittyImageID()
+
+		v.imageMu.Lock()
+		if v.chapterGen.Load() != gen {
+			v.imageMu.Unlock()
+			v.deleteKittyImagesNow(created)
+			return nil
+		}
+		transmitErr := v.terminalOut.WithLock(func(w io.Writer) error {
+			if err := termimage.TransmitKittyImage(w, img.path, newID, cols, rows); err != nil {
+				_ = termimage.DeleteKittyImage(w, newID)
+				return err
+			}
+			return nil
+		})
+		v.imageMu.Unlock()
+		if transmitErr != nil {
+			img.err = transmitErr
+			images = append(images, img)
+			continue
+		}
+		grid := termimage.KittyPlaceholderGrid(newID, cols, rows)
+		if grid == nil {
+			v.deleteKittyImagesNow([]uint32{newID})
+			img.err = fmt.Errorf("生成插图占位符失败")
+			images = append(images, img)
+			continue
+		}
+
+		img.id = newID
+		img.grid = grid
+		created = append(created, newID)
+		images = append(images, img)
+	}
+
+	if v.chapterGen.Load() != gen {
+		v.deleteKittyImagesNow(created)
+		return nil
+	}
+	return images
+}
+
+func (v *ReaderView) deleteKittyImagesNow(ids []uint32) {
+	out := v.terminalOut
+	if out == nil || len(ids) == 0 {
+		return
+	}
+	v.imageMu.Lock()
+	defer v.imageMu.Unlock()
+	_ = out.WithLock(func(w io.Writer) error {
+		for _, id := range ids {
+			if id != 0 {
+				_ = termimage.DeleteKittyImage(w, id)
+			}
+		}
+		return nil
+	})
+}
+
+func (v *ReaderView) deleteKittyImagesCmd(ids []uint32) tea.Cmd {
+	if len(ids) == 0 || v.terminalOut == nil {
+		return nil
+	}
+	copied := append([]uint32(nil), ids...)
+	return func() tea.Msg {
+		v.deleteKittyImagesNow(copied)
+		return nil
+	}
+}
+
+// resetInlineState clears mixed-chapter images and schedules terminal-side
+// cleanup of their Kitty ids.
+func (v *ReaderView) resetInlineState() tea.Cmd {
+	v.inlineLayout.Add(1)
+	ids := make([]uint32, 0, len(v.inlineImages))
+	for _, img := range v.inlineImages {
+		if img.id != 0 {
+			ids = append(ids, img.id)
+		}
+	}
+	v.inlineImages = nil
+	return v.deleteKittyImagesCmd(ids)
+}
+
+// refreshInlineViewportContent lays out prose and image blocks in source order.
+func (v *ReaderView) refreshInlineViewportContent() {
+	lines := v.reader.Lines()
+	curTheme := v.currentTheme()
+	textStyle := lipgloss.NewStyle().Foreground(curTheme.Text)
+	visual := make([]string, 0, len(lines)*2)
+	imageIdx := -1
+
+	for _, line := range lines {
+		if isIllustrationBadge(line) {
+			imageIdx++
+			if imageIdx < len(v.inlineImages) {
+				visual = append(visual, v.renderInlineImageBlock(imageIdx)...)
+				visual = append(visual, "")
+				continue
+			}
+		}
+		visual = append(visual, textStyle.Render(line), "")
+	}
+	v.viewport.SetContent(strings.Join(visual, "\n"))
+}
+
+func (v *ReaderView) renderInlineImageBlock(index int) []string {
+	img := &v.inlineImages[index]
+	curTheme := v.currentTheme()
+	center := func(s string) string {
+		width := lipgloss.Width(s)
+		if width >= v.width {
+			return s
+		}
+		return strings.Repeat(" ", (v.width-width)/2) + s
+	}
+
+	if img.err != nil {
+		msg := lipgloss.NewStyle().
+			Foreground(theme.AccentRose).
+			Render(fmt.Sprintf("[插图 %d/%d 加载失败] %v", index+1, len(v.inlineImages), img.err))
+		return []string{"", center(theme.TruncateANSI(msg, v.width, "...")), ""}
+	}
+
+	if len(img.grid) == 0 || img.cols <= 0 {
+		rows := img.rows
+		if rows < 3 {
+			rows = 3
+		}
+		lines := make([]string, rows)
+		lines[rows/2] = center(lipgloss.NewStyle().
+			Foreground(curTheme.Muted).
+			Render(fmt.Sprintf("[插图 %d/%d 加载中...]", index+1, len(v.inlineImages))))
+		return lines
+	}
+
+	cols := img.cols
+	if cols > v.width {
+		cols = v.width
+	}
+	lines := make([]string, 0, len(img.grid)+1)
+	for _, gridLine := range img.grid {
+		left := (v.width - cols) / 2
+		if left < 0 {
+			left = 0
+		}
+		right := v.width - left - cols
+		if right < 0 {
+			right = 0
+		}
+		lines = append(lines, strings.Repeat(" ", left)+gridLine+strings.Repeat(" ", right))
+	}
+	caption := lipgloss.NewStyle().
+		Foreground(curTheme.Muted).
+		Render(fmt.Sprintf(" 第 %d/%d 张插图 ", index+1, len(v.inlineImages)))
+	lines = append(lines, center(caption))
+	return lines
+}
+
+// reflowInlineImages recomputes mixed-chapter image grids after a resize and
+// re-places the existing image ids without retransmitting pixels.
+func (v *ReaderView) reflowInlineImages() tea.Cmd {
+	if len(v.inlineImages) == 0 || !v.kittyCapable || v.terminalOut == nil {
+		return nil
+	}
+	maxCols, maxRows := v.inlineImageAreaFor(v.width, v.height)
+	type placement struct {
+		id         uint32
+		cols, rows int
+	}
+	placements := make([]placement, 0, len(v.inlineImages))
+	changed := false
+	for i := range v.inlineImages {
+		img := &v.inlineImages[i]
+		if img.id == 0 || img.width <= 0 || img.height <= 0 {
+			continue
+		}
+		cols, rows := termimage.CalculateScaledDimensions(img.width, img.height, maxCols, maxRows)
+		if cols == img.cols && rows == img.rows {
+			continue
+		}
+		grid := termimage.KittyPlaceholderGrid(img.id, cols, rows)
+		if grid == nil {
+			continue
+		}
+		img.cols = cols
+		img.rows = rows
+		img.grid = grid
+		placements = append(placements, placement{id: img.id, cols: cols, rows: rows})
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	percent := v.viewport.ScrollPercent()
+	v.refreshViewportContent()
+	v.viewport.SetYOffset(int(percent * float64(v.viewport.TotalLineCount())))
+
+	gen := v.chapterGen.Load()
+	layout := v.inlineLayout.Add(1)
+	out := v.terminalOut
+	return func() tea.Msg {
+		v.imageMu.Lock()
+		defer v.imageMu.Unlock()
+		if v.chapterGen.Load() != gen || v.inlineLayout.Load() != layout {
+			return nil
+		}
+		_ = out.WithLock(func(w io.Writer) error {
+			for _, p := range placements {
+				if err := termimage.PlaceKittyImage(w, p.id, p.cols, p.rows); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		return nil
+	}
+}
+
 // reflowKittyImage resizes the virtual placement after a terminal resize
 // without retransmitting pixel data. It also refreshes the placeholder grid.
 func (v *ReaderView) reflowKittyImage() tea.Cmd {
@@ -455,8 +794,38 @@ func (v *ReaderView) saveProgress() {
 	_ = v.reader.SaveProgress(p)
 }
 
+// exitReaderCmd saves the bookmark and removes inline/gallery images before
+// returning to the catalog.
+func (v *ReaderView) exitReaderCmd() tea.Cmd {
+	v.saveProgress()
+	v.chapterGen.Add(1)
+	modalCleanup := v.resetImageState()
+	inlineCleanup := v.resetInlineState()
+	return func() tea.Msg {
+		if modalCleanup != nil {
+			_ = modalCleanup()
+		}
+		if inlineCleanup != nil {
+			_ = inlineCleanup()
+		}
+		return common.SwitchViewMsg{
+			Target: common.ViewCatalog,
+			BookID: v.bookID,
+		}
+	}
+}
+
+// isIllustrationBadge matches both Simplified and Traditional badge prefixes.
+func isIllustrationBadge(line string) bool {
+	return strings.HasPrefix(line, "[插图:") || strings.HasPrefix(line, "[插圖:")
+}
+
 func (v *ReaderView) refreshViewportContent() {
 	if v.reader == nil {
+		return
+	}
+	if len(v.inlineImages) > 0 {
+		v.refreshInlineViewportContent()
 		return
 	}
 	lines := v.reader.Lines()
@@ -465,7 +834,7 @@ func (v *ReaderView) refreshViewportContent() {
 
 	styledLines := make([]string, len(lines))
 	for i, l := range lines {
-		if strings.HasPrefix(l, "[插图:") {
+		if isIllustrationBadge(l) {
 			styledLines[i] = lipgloss.NewStyle().Bold(true).Foreground(curTheme.Accent).Render(l)
 		} else {
 			styledLines[i] = textStyle.Render(l)
@@ -479,9 +848,13 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case chapterContentLoadedMsg:
+		if msg.gen != 0 && msg.gen != v.chapterGen.Load() {
+			return v, nil
+		}
 		v.loading = false
 		v.err = msg.err
 		v.galleryMode = false
+		v.inlineImages = msg.inlineImages
 		if msg.engine != nil {
 			v.reader = msg.engine
 		}
@@ -494,6 +867,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			// A chapter containing only illustrations opens directly as a
 			// full-screen gallery, with no [i] step.
 			if v.kittyCapable && v.reader.IsIllustrationOnly() {
+				v.inlineImages = nil
 				v.showImageModal = true
 				v.galleryMode = true
 				index := 0
@@ -514,6 +888,9 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			if saved != nil {
 				// Scroll to saved position
 				v.viewport.SetYOffset(saved.LineIndex)
+			}
+			if cmd := v.reflowInlineImages(); cmd != nil {
+				return v, cmd
 			}
 		}
 		return v, nil
@@ -559,12 +936,20 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 
 	case tea.ResumeMsg:
 		// Suspending releases the alternate screen, which clears Kitty image
-		// data. Re-upload the current illustration when the modal is still open.
+		// data. Reload mixed chapters so all inline images are retransmitted.
+		if len(v.inlineImages) > 0 {
+			v.saveProgress()
+			return v, v.OpenChapter(v.bookID, v.chapterID)
+		}
+		// Re-upload the current illustration when the modal is still open.
 		if v.showImageModal && v.kittyImageID != 0 {
 			return v, v.startImageLoad(v.imageIndex)
 		}
 
 	case tea.WindowSizeMsg:
+		if cmd := v.reflowInlineImages(); cmd != nil {
+			return v, cmd
+		}
 		if cmd := v.reflowKittyImage(); cmd != nil {
 			return v, cmd
 		}
@@ -575,13 +960,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			if v.galleryMode {
 				switch msg.String() {
 				case "esc", "q":
-					v.saveProgress()
-					return v, func() tea.Msg {
-						return common.SwitchViewMsg{
-							Target: common.ViewCatalog,
-							BookID: v.bookID,
-						}
-					}
+					return v, v.exitReaderCmd()
 				case "i", "I":
 					return v, nil
 				case "left", "h", "[", "p", "up", "k":
@@ -675,14 +1054,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 			return v, nil
 
 		case "esc":
-			// Save progress on exit
-			v.saveProgress()
-			return v, func() tea.Msg {
-				return common.SwitchViewMsg{
-					Target: common.ViewCatalog,
-					BookID: v.bookID,
-				}
-			}
+			return v, v.exitReaderCmd()
 		}
 	}
 
@@ -731,10 +1103,20 @@ func (v *ReaderView) View() string {
 
 	rightElements := make([]string, 0)
 	if illuCount > 0 {
+		label := fmt.Sprintf("[插图:%d张]", illuCount)
+		if v.kittyCapable {
+			if len(v.inlineImages) > 0 {
+				label += "[已内联]"
+			} else {
+				label += "[图文混排]"
+			}
+		} else {
+			label += "[i]"
+		}
 		rightElements = append(rightElements, lipgloss.NewStyle().
 			Bold(true).
 			Foreground(curTheme.Accent).
-			Render(fmt.Sprintf("[插图:%d张][i]", illuCount)))
+			Render(label))
 	}
 
 	tradLabel := "[t]繁体"
@@ -859,13 +1241,13 @@ func (v *ReaderView) renderGalleryView() string {
 			Foreground(theme.TextMuted).
 			Render("[加载中] 正在获取插图，请稍候...")))
 	case v.imageErr != nil:
-		body = append(body, center(lipgloss.NewStyle().
+		body = append(body, center(theme.TruncateANSI(lipgloss.NewStyle().
 			Foreground(theme.AccentRose).
-			Render(fmt.Sprintf("[错误] 插图加载失败: %v", v.imageErr))))
+			Render(fmt.Sprintf("[错误] 插图加载失败: %v", v.imageErr)), width, "...")))
 	case v.imageKittyErr != nil:
-		body = append(body, center(lipgloss.NewStyle().
+		body = append(body, center(theme.TruncateANSI(lipgloss.NewStyle().
 			Foreground(theme.AccentRose).
-			Render(fmt.Sprintf("[提示] Kitty 渲染失败: %v", v.imageKittyErr))))
+			Render(fmt.Sprintf("[提示] Kitty 渲染失败: %v", v.imageKittyErr)), width, "...")))
 		if v.imagePath != "" {
 			body = append(body, "", center(lipgloss.NewStyle().
 				Foreground(theme.TextMuted).
