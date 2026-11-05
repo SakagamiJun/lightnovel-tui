@@ -59,8 +59,10 @@ func main() {
 		tea.WithOutput(terminalOut),
 	)
 
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "运行 TUI 失败: %v\n", err)
+	_, runErr := p.Run()
+	terminalOut.Stop()
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "运行 TUI 失败: %v\n", runErr)
 		os.Exit(1)
 	}
 }

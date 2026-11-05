@@ -279,6 +279,13 @@ func TestLockedWriter(t *testing.T) {
 	if got := lw.Fd(); got != ^uintptr(0) {
 		t.Errorf("Fd for a bytes.Buffer = %d, want invalid", got)
 	}
+	lw.Stop()
+	if _, err := lw.Write([]byte("c")); err != io.ErrClosedPipe {
+		t.Errorf("Write after Stop returned %v, want io.ErrClosedPipe", err)
+	}
+	if err := lw.WithLock(func(w io.Writer) error { return nil }); err != io.ErrClosedPipe {
+		t.Errorf("WithLock after Stop returned %v, want io.ErrClosedPipe", err)
+	}
 	if NewLockedWriter(nil) != nil {
 		t.Errorf("expected nil LockedWriter for nil writer")
 	}

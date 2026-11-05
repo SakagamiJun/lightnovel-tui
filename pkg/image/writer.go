@@ -14,8 +14,9 @@ import (
 // terminal when the writer is passed via tea.WithOutput; otherwise the program
 // would stop receiving window resize messages.
 type LockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu     sync.Mutex
+	w      io.Writer
+	closed bool
 }
 
 // NewLockedWriter wraps w with a mutex. A nil writer yields nil so callers can
@@ -31,6 +32,9 @@ func NewLockedWriter(w io.Writer) *LockedWriter {
 func (l *LockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return 0, io.ErrClosedPipe
+	}
 	return l.w.Write(p)
 }
 
@@ -40,7 +44,19 @@ func (l *LockedWriter) Write(p []byte) (int, error) {
 func (l *LockedWriter) WithLock(fn func(io.Writer) error) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return io.ErrClosedPipe
+	}
 	return fn(l.w)
+}
+
+// Stop prevents any further output. It is called after the Bubble Tea program
+// exits so a late-downloading image command cannot write escape sequences over
+// the restored shell.
+func (l *LockedWriter) Stop() {
+	l.mu.Lock()
+	l.closed = true
+	l.mu.Unlock()
 }
 
 // Read forwards to the underlying writer when it supports reading. It exists
