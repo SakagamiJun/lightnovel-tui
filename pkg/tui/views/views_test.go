@@ -1709,6 +1709,157 @@ func TestReaderChapterNavigation(t *testing.T) {
 	}
 }
 
+// newPagingReaderView prepares a two-chapter book whose first chapter is long
+// enough to page through, with all content cached locally.
+func newPagingReaderView(t *testing.T) *ReaderView {
+	t.Helper()
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_paging"
+	const chapterID = "ch_paging"
+	const nextChapterID = "ch_paging_next"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			Title: "第一卷",
+			Chapters: []model.Chapter{
+				{ID: chapterID, Title: "长章节"},
+				{ID: nextChapterID, Title: "下一章"},
+			},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	elements := make([]model.ContentElement, 0, 80)
+	for i := 0; i < 80; i++ {
+		elements = append(elements, model.ContentElement{
+			Type: model.ContentTypeText,
+			Text: fmt.Sprintf("第 %d 段正文内容。", i+1),
+		})
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:       chapterID,
+		BookID:   bookID,
+		Title:    "长章节",
+		Elements: elements,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:       nextChapterID,
+		BookID:   bookID,
+		Title:    "下一章",
+		Elements: []model.ContentElement{{Type: model.ContentTypeText, Text: "下一章正文。"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rv := NewReaderView(store, nil)
+	rv.SetSize(80, 24)
+	cmd := rv.OpenChapter(bookID, chapterID)
+	if cmd == nil {
+		t.Fatal("expected chapter load command")
+	}
+	loaded, ok := cmd().(ChapterContentLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("chapter load failed: %+v", loaded)
+	}
+	rv.Update(loaded)
+	return rv
+}
+
+func TestReaderPageTurnKeys(t *testing.T) {
+	rv := newPagingReaderView(t)
+
+	if got := rv.viewport.Height; got != 22 {
+		t.Fatalf("viewport height = %d, want 22", got)
+	}
+	if got := rv.pageStep(); got != 20 {
+		t.Fatalf("page step = %d, want 20", got)
+	}
+
+	press := func(key tea.KeyMsg) {
+		t.Helper()
+		if _, cmd := rv.Update(key); cmd != nil {
+			t.Fatalf("page turn emitted an unexpected command")
+		}
+	}
+
+	// Arrow keys and h/l move one page in both directions.
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	if got := rv.viewport.YOffset; got != 20 {
+		t.Fatalf("after right: y offset = %d, want 20", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	if got := rv.viewport.YOffset; got != 40 {
+		t.Fatalf("after second right: y offset = %d, want 40", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := rv.viewport.YOffset; got != 20 {
+		t.Fatalf("after left: y offset = %d, want 20", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if got := rv.viewport.YOffset; got != 40 {
+		t.Fatalf("after l: y offset = %d, want 40", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if got := rv.viewport.YOffset; got != 20 {
+		t.Fatalf("after h: y offset = %d, want 20", got)
+	}
+
+	// The legacy pager keys share the same 90% step.
+	press(tea.KeyMsg{Type: tea.KeySpace})
+	if got := rv.viewport.YOffset; got != 40 {
+		t.Fatalf("after space: y offset = %d, want 40", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyPgDown})
+	if got := rv.viewport.YOffset; got != 60 {
+		t.Fatalf("after pgdown: y offset = %d, want 60", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyPgUp})
+	if got := rv.viewport.YOffset; got != 40 {
+		t.Fatalf("after pgup: y offset = %d, want 40", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if got := rv.viewport.YOffset; got != 60 {
+		t.Fatalf("after f: y offset = %d, want 60", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	if got := rv.viewport.YOffset; got != 40 {
+		t.Fatalf("after b: y offset = %d, want 40", got)
+	}
+
+	// Paging never switches chapters; chapter navigation keeps its own keys.
+	if rv.chapterID != "ch_paging" {
+		t.Fatalf("page turn switched chapter to %s", rv.chapterID)
+	}
+
+	// The first and last page stop at the scroll bounds.
+	rv.viewport.SetYOffset(0)
+	press(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := rv.viewport.YOffset; got != 0 {
+		t.Fatalf("left at top: y offset = %d, want 0", got)
+	}
+	rv.viewport.GotoBottom()
+	bottom := rv.viewport.YOffset
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	if got := rv.viewport.YOffset; got != bottom {
+		t.Fatalf("right at bottom: y offset = %d, want %d", got, bottom)
+	}
+
+	// The step shrinks with the viewport and never drops below one row.
+	rv.SetSize(80, 20) // viewport height 18, overlap 2
+	if got := rv.pageStep(); got != 16 {
+		t.Fatalf("page step at height 18 = %d, want 16", got)
+	}
+	rv.SetSize(80, 3) // viewport height 1
+	if got := rv.pageStep(); got != 1 {
+		t.Fatalf("page step at height 1 = %d, want 1", got)
+	}
+}
+
 func TestSettingsRulesManagement(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "lnr-test-settings-rules-*")
 	if err != nil {

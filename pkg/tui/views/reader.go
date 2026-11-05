@@ -850,6 +850,36 @@ func (v *ReaderView) refreshViewportContent() {
 	v.viewport.SetContent(strings.Join(styledLines, "\n\n"))
 }
 
+// pageStep returns the row advance of one page turn: a full viewport minus a
+// 10% overlap, with a two-row floor. The overlap keeps the tail of the previous
+// page visible as a reading anchor and absorbs off-by-one differences between
+// the viewport height and the rendered frame.
+func (v *ReaderView) pageStep() int {
+	h := v.viewport.Height
+	if h < 2 {
+		return 1
+	}
+	overlap := h / 10
+	if overlap < 2 {
+		overlap = 2
+	}
+	step := h - overlap
+	if step < 1 {
+		step = 1
+	}
+	return step
+}
+
+// turnPage scrolls one page down (dir > 0) or up (dir < 0). The viewport
+// clamps the target to the scrollable range, so the first and last pages stop
+// naturally instead of switching chapters.
+func (v *ReaderView) turnPage(dir int) {
+	if v.viewport.Height <= 0 || dir == 0 {
+		return
+	}
+	v.viewport.SetYOffset(v.viewport.YOffset + dir*v.pageStep())
+}
+
 func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -1065,6 +1095,14 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 					return v, v.OpenChapter(v.bookID, nextID)
 				}
 			}
+			return v, nil
+
+		case "right", "l", " ", "f", "pgdown":
+			v.turnPage(1)
+			return v, nil
+
+		case "left", "h", "b", "pgup":
+			v.turnPage(-1)
 			return v, nil
 
 		case "esc":
