@@ -1836,6 +1836,18 @@ func TestReaderPageTurnKeys(t *testing.T) {
 		t.Fatalf("page turn switched chapter to %s", rv.chapterID)
 	}
 
+	// Odd offsets (for example a restored bookmark) snap onto a prose row.
+	rv.viewport.SetYOffset(1)
+	press(tea.KeyMsg{Type: tea.KeyRight})
+	if got := rv.viewport.YOffset; got != 22 {
+		t.Fatalf("right from odd offset: y offset = %d, want 22", got)
+	}
+	rv.viewport.SetYOffset(41)
+	press(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := rv.viewport.YOffset; got != 20 {
+		t.Fatalf("left from odd offset: y offset = %d, want 20", got)
+	}
+
 	// The first and last page stop at the scroll bounds.
 	rv.viewport.SetYOffset(0)
 	press(tea.KeyMsg{Type: tea.KeyLeft})
@@ -1848,8 +1860,16 @@ func TestReaderPageTurnKeys(t *testing.T) {
 	if got := rv.viewport.YOffset; got != bottom {
 		t.Fatalf("right at bottom: y offset = %d, want %d", got, bottom)
 	}
+	press(tea.KeyMsg{Type: tea.KeyLeft})
+	if got, want := rv.viewport.YOffset, bottom-21; got != want {
+		t.Fatalf("left from bottom: y offset = %d, want %d", got, want)
+	}
 
 	// The step shrinks with the viewport and never drops below one row.
+	rv.SetSize(80, 23) // viewport height 21, padded down to an even step
+	if got := rv.pageStep(); got != 18 {
+		t.Fatalf("page step at height 21 = %d, want 18", got)
+	}
 	rv.SetSize(80, 20) // viewport height 18, overlap 2
 	if got := rv.pageStep(); got != 16 {
 		t.Fatalf("page step at height 18 = %d, want 16", got)
@@ -1857,6 +1877,45 @@ func TestReaderPageTurnKeys(t *testing.T) {
 	rv.SetSize(80, 3) // viewport height 1
 	if got := rv.pageStep(); got != 1 {
 		t.Fatalf("page step at height 1 = %d, want 1", got)
+	}
+}
+
+func TestReaderPageHint(t *testing.T) {
+	rv := newPagingReaderView(t)
+
+	view := rv.View()
+	if !strings.Contains(view, "←/→翻页") {
+		t.Fatalf("expected paging hint in the reader bar")
+	}
+	if strings.Contains(view, "已到章末") {
+		t.Fatalf("chapter-end hint appeared before the last page")
+	}
+
+	rv.viewport.GotoBottom()
+	view = rv.View()
+	if !strings.Contains(view, "已到章末 · [n]下一章") {
+		t.Fatalf("expected chapter-end hint on the last page, got: %s", view)
+	}
+
+	// The last chapter has nothing to page to, so the plain paging hint stays.
+	cmd := rv.OpenChapter("book_paging", "ch_paging_next")
+	if cmd == nil {
+		t.Fatal("expected chapter load command")
+	}
+	loaded, ok := cmd().(ChapterContentLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("chapter load failed: %+v", loaded)
+	}
+	rv.Update(loaded)
+	if view := rv.View(); strings.Contains(view, "已到章末") {
+		t.Fatalf("chapter-end hint appeared on the last chapter")
+	}
+
+	// Over-wide bars are clipped, never wrapped, so the frame keeps its height.
+	rv.viewport.SetYOffset(0)
+	rv.SetSize(60, 24)
+	if got := strings.Count(rv.View(), "\n") + 1; got != 24 {
+		t.Fatalf("narrow reader view rendered %d lines, want 24", got)
 	}
 }
 

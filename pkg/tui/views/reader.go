@@ -867,6 +867,12 @@ func (v *ReaderView) pageStep() int {
 	if step < 1 {
 		step = 1
 	}
+	// Plain-text content puts prose on even rows and separator rows on odd
+	// ones. An even step keeps later pages starting on prose; mixed chapters
+	// have variable image blocks and cannot use this parity.
+	if len(v.inlineImages) == 0 && step > 2 && step%2 == 1 {
+		step--
+	}
 	return step
 }
 
@@ -877,7 +883,18 @@ func (v *ReaderView) turnPage(dir int) {
 	if v.viewport.Height <= 0 || dir == 0 {
 		return
 	}
-	v.viewport.SetYOffset(v.viewport.YOffset + dir*v.pageStep())
+	target := v.viewport.YOffset + dir*v.pageStep()
+	// In plain-text layout a separator row holds no text, so landing on one is
+	// safe to skip in the direction of travel. This keeps the page top on a
+	// paragraph without ever dropping prose.
+	if len(v.inlineImages) == 0 && target%2 != 0 {
+		if dir > 0 {
+			target++
+		} else {
+			target--
+		}
+	}
+	v.viewport.SetYOffset(target)
 }
 
 func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
@@ -1185,6 +1202,12 @@ func (v *ReaderView) View() string {
 		topGap := v.width - lipgloss.Width(leftTitle) - lipgloss.Width(rightStr)
 		topBar = leftTitle + strings.Repeat(" ", topGap) + rightStr
 	}
+	// Lipgloss pads but wraps over-wide content, which would add rows and break
+	// the fixed-height reader frame. Clip to one line; the renderer clips at the
+	// terminal edge anyway.
+	if v.width > 0 {
+		topBar = theme.TruncateANSI(topBar, v.width, "")
+	}
 	topBar = lipgloss.NewStyle().
 		Background(curTheme.BarBg).
 		Width(v.width).
@@ -1217,15 +1240,27 @@ func (v *ReaderView) View() string {
 		Foreground(curTheme.Accent).
 		Render(fmt.Sprintf("第 %d/%d 行 (%.1f%%)", currLine, totalLines, percent))
 
+	// Advertise page turning, and switch to a chapter-end hint once the last
+	// page is reached so a no-op flip does not look broken.
+	pageHint := "←/→翻页"
+	if v.reader != nil && v.viewport.TotalLineCount() > v.viewport.Height && v.viewport.AtBottom() {
+		if _, _, ok := v.reader.NextChapter(); ok {
+			pageHint = "已到章末 · [n]下一章"
+		}
+	}
+
 	statusRight := lipgloss.NewStyle().
 		Foreground(curTheme.Muted).
-		Render(fmt.Sprintf("[[/]]换章  •  配色:%s[c]  •  %s ", curTheme.Name, nowTime))
+		Render(fmt.Sprintf("%s  •  [/]换章  •  配色:%s[c]  •  %s ", pageHint, curTheme.Name, nowTime))
 
 	statusMidContent := statusLeft + "  •  " + statusMid
 	bottomBar := statusMidContent + "  " + statusRight
 	if v.width > lipgloss.Width(statusMidContent)+lipgloss.Width(statusRight) {
 		bottomGap := v.width - lipgloss.Width(statusMidContent) - lipgloss.Width(statusRight)
 		bottomBar = statusMidContent + strings.Repeat(" ", bottomGap) + statusRight
+	}
+	if v.width > 0 {
+		bottomBar = theme.TruncateANSI(bottomBar, v.width, "")
 	}
 	bottomBar = lipgloss.NewStyle().
 		Background(curTheme.BarBg).
