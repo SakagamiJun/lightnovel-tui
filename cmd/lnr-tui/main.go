@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
 
+	termimage "github.com/SakagamiJun/lightnovel-tui/pkg/image"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/source/wenku8"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui"
@@ -47,8 +48,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Share one synchronized writer between the Bubble Tea renderer and inline
+	// Kitty graphics so image payloads can never interleave with screen frames.
+	terminalOut := termimage.NewLockedWriter(os.Stdout)
 	appModel := tui.NewAppModel(store, src)
-	p := tea.NewProgram(appModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	appModel.SetTerminalOutput(terminalOut)
+	p := tea.NewProgram(appModel,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithOutput(terminalOut),
+	)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "运行 TUI 失败: %v\n", err)

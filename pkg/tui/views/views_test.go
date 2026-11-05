@@ -1,6 +1,7 @@
 package views
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/SakagamiJun/lightnovel-tui/pkg/epub"
+	termimage "github.com/SakagamiJun/lightnovel-tui/pkg/image"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/common"
@@ -1073,6 +1075,130 @@ func TestIllustrationModalCenterAndMetadata(t *testing.T) {
 	}
 	if !strings.Contains(out, "Quick Look") {
 		t.Errorf("expected modal to mention Quick Look, got: %s", out)
+	}
+}
+
+func TestIllustrationModalKittyGrid(t *testing.T) {
+	const imageID = 0x123456
+	grid := termimage.KittyPlaceholderGrid(imageID, 8, 4)
+	if len(grid) != 4 {
+		t.Fatalf("expected 4 grid rows, got %d", len(grid))
+	}
+
+	rv := &ReaderView{
+		width:          80,
+		height:         30,
+		showImageModal: true,
+		imageIndex:     0,
+		imagePath:      "/tmp/mock_illu.jpg",
+		imageWidth:     1200,
+		imageHeight:    1800,
+		imageSize:      256 * 1024,
+		kittyCapable:   true,
+		kittyImageID:   imageID,
+		imageGrid:      grid,
+		imageCols:      8,
+		imageRows:      4,
+	}
+
+	out := rv.renderImageModal()
+	if got := strings.Count(out, string(rune(0x10EEEE))); got != 32 {
+		t.Errorf("expected 32 placeholder cells, got %d", got)
+	}
+	if !strings.Contains(out, "Kitty 图形协议") {
+		t.Errorf("expected modal to mention Kitty graphics, got: %s", out)
+	}
+	if !strings.Contains(out, "1200 × 1800 像素") {
+		t.Errorf("expected modal to contain image dimensions, got: %s", out)
+	}
+	if !strings.Contains(out, "Quick Look") {
+		t.Errorf("expected modal to retain system preview hint, got: %s", out)
+	}
+	if lines := strings.Count(out, "\n") + 1; lines > 30 {
+		t.Errorf("modal rendered %d lines, exceeds view height 30", lines)
+	}
+}
+
+func TestIllustrationModalCloseDeletesKittyImage(t *testing.T) {
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	rv := &ReaderView{
+		width:          80,
+		height:         24,
+		showImageModal: true,
+		kittyCapable:   true,
+		terminalOut:    lw,
+		kittyImageID:   11,
+		imageGrid:      termimage.KittyPlaceholderGrid(11, 4, 2),
+		imageCols:      4,
+		imageRows:      2,
+		imageWidth:     400,
+		imageHeight:    200,
+	}
+
+	_, cmd := rv.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if rv.showImageModal {
+		t.Fatalf("expected modal to close on Esc")
+	}
+	if rv.kittyImageID != 0 {
+		t.Errorf("expected kitty image id to be cleared, got %d", rv.kittyImageID)
+	}
+	if cmd == nil {
+		t.Fatalf("expected a deletion command")
+	}
+	cmd()
+	if got := out.String(); !strings.Contains(got, "\x1b_Ga=d,d=I,i=11,q=2\x1b\\") {
+		t.Errorf("expected Kitty deletion sequence, got %q", got)
+	}
+}
+
+func TestReaderResizeReflowsKittyPlacement(t *testing.T) {
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	const imageID = 11
+	rv := &ReaderView{
+		width:          80,
+		height:         30,
+		showImageModal: true,
+		kittyCapable:   true,
+		terminalOut:    lw,
+		kittyImageID:   imageID,
+		imageGrid:      termimage.KittyPlaceholderGrid(imageID, 20, 10),
+		imageCols:      20,
+		imageRows:      10,
+		imageWidth:     1200,
+		imageHeight:    1800,
+	}
+	rv.SetSize(80, 30)
+
+	rv.SetSize(60, 20)
+	_, cmd := rv.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	if cmd == nil {
+		t.Fatalf("expected a placement command after resize")
+	}
+	cmd()
+	got := out.String()
+	if !strings.Contains(got, "\x1b_Ga=p,U=1,q=2,i=11,p=1,c=") {
+		t.Errorf("expected Kitty placement sequence, got %q", got)
+	}
+	if rv.imageCols == 20 || rv.imageRows == 10 {
+		t.Errorf("expected placeholder grid to be reflowed, got %dx%d", rv.imageCols, rv.imageRows)
+	}
+	if len(rv.imageGrid) != rv.imageRows {
+		t.Errorf("grid rows = %d, want %d", len(rv.imageGrid), rv.imageRows)
+	}
+}
+
+func TestImageAreaFitsModal(t *testing.T) {
+	rv := &ReaderView{width: 80, height: 24}
+	cols, rows := rv.imageArea()
+	if cols != 70 || rows != 16 {
+		t.Errorf("imageArea() = %dx%d, want 70x16", cols, rows)
+	}
+
+	modalW, innerW := rv.modalWidths()
+	if modalW != 74 || innerW != 72 {
+		t.Errorf("modalWidths() = %dx%d, want 74x72", modalW, innerW)
 	}
 }
 

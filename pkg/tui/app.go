@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/SakagamiJun/lightnovel-tui/pkg/epub"
+	termimage "github.com/SakagamiJun/lightnovel-tui/pkg/image"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/source"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/common"
@@ -123,6 +124,14 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 	m.readerView = views.NewReaderView(store, src)
 
 	return m
+}
+
+// SetTerminalOutput forwards the synchronized terminal writer used by both the
+// Bubble Tea renderer and inline Kitty graphics to the reader view.
+func (m *AppModel) SetTerminalOutput(out *termimage.LockedWriter) {
+	if m.readerView != nil {
+		m.readerView.SetTerminalOutput(out)
+	}
 }
 
 func (m *AppModel) Init() tea.Cmd {
