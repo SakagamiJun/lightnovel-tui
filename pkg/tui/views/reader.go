@@ -542,7 +542,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		// Regular text reading interaction
 		switch msg.String() {
 		case "i", "I":
-			if !v.loading && v.totalIllustrations() > 0 {
+			if v.err == nil && !v.loading && v.totalIllustrations() > 0 {
 				v.showImageModal = true
 				return v, v.startImageLoad(0)
 			}
