@@ -103,16 +103,23 @@ func SupportsKittyPlaceholders() bool {
 		strings.Contains(termProgram, "warp"):
 		return false
 	}
-
-	if os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("KITTY_PID") != "" {
-		return true
+	// Multiplexers need explicit Kitty graphics passthrough before placeholder
+	// cells can resolve to images; otherwise they render as PUA glyphs.
+	if os.Getenv("TMUX") != "" || os.Getenv("STY") != "" || os.Getenv("ZELLIJ") != "" {
+		return false
 	}
 
 	term := strings.ToLower(os.Getenv("TERM"))
-	if strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") {
+	if strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") || termProgram == "ghostty" {
 		return true
 	}
-	return strings.Contains(termProgram, "ghostty")
+
+	// Plain KITTY_WINDOW_ID can be inherited by unrelated terminal emulators.
+	// Trust it only when TERM_PROGRAM does not identify a different terminal.
+	if os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("KITTY_PID") != "" {
+		return termProgram == "" || termProgram == "kitty"
+	}
+	return false
 }
 
 // NewKittyImageID returns a random image id that can be encoded in the

@@ -225,6 +225,9 @@ func TestSupportsKittyPlaceholders(t *testing.T) {
 	t.Setenv("KITTY_WINDOW_ID", "")
 	t.Setenv("KITTY_PID", "")
 	t.Setenv("WEZTERM_PANE", "")
+	t.Setenv("TMUX", "")
+	t.Setenv("STY", "")
+	t.Setenv("ZELLIJ", "")
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
 	t.Setenv(kittyProtocolEnv, "")
@@ -232,6 +235,26 @@ func TestSupportsKittyPlaceholders(t *testing.T) {
 	if SupportsKittyPlaceholders() {
 		t.Errorf("expected no Kitty placeholder support in a generic terminal")
 	}
+
+	// A leaked KITTY_WINDOW_ID must not override another terminal's identity.
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected Apple Terminal to be excluded despite leaked KITTY_WINDOW_ID")
+	}
+
+	// Multiplexers require explicit graphics passthrough.
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("TERM", "xterm-kitty")
+	t.Setenv("TMUX", "/tmp/tmux-501/default,123,0")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected tmux to require an explicit protocol override")
+	}
+	t.Setenv("TMUX", "")
+	t.Setenv("ZELLIJ", "session-1")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected zellij to require an explicit protocol override")
+	}
+	t.Setenv("ZELLIJ", "")
 
 	// VS Code / Cursor can inherit KITTY_WINDOW_ID from the terminal that
 	// launched the editor, but their integrated terminal does not implement
