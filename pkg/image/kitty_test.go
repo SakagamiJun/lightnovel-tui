@@ -208,7 +208,7 @@ func TestKittyPlaceAndDelete(t *testing.T) {
 	if err := PlaceKittyImage(&out, 9, 12, 6); err != nil {
 		t.Fatalf("PlaceKittyImage failed: %v", err)
 	}
-	if got, want := out.String(), "\x1b_Ga=p,U=1,q=2,i=9,p=1,c=12,r=6\x1b\\"; got != want {
+	if got, want := out.String(), "\x1b_Ga=p,U=1,q=2,i=9,p=1,C=1,c=12,r=6\x1b\\"; got != want {
 		t.Errorf("PlaceKittyImage = %q, want %q", got, want)
 	}
 

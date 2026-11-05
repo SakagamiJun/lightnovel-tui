@@ -1340,7 +1340,7 @@ func TestReaderResizeReflowsKittyPlacement(t *testing.T) {
 	}
 	cmd()
 	got := out.String()
-	if !strings.Contains(got, "\x1b_Ga=p,U=1,q=2,i=11,p=1,c=") {
+	if !strings.Contains(got, "\x1b_Ga=p,U=1,q=2,i=11,p=1,C=1,c=") {
 		t.Errorf("expected Kitty placement sequence, got %q", got)
 	}
 	if rv.imageCols == 20 || rv.imageRows == 10 {

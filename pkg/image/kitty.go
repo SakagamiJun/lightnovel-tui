@@ -190,7 +190,7 @@ func TransmitKittyImage(w io.Writer, filePath string, imageID uint32, cols, rows
 	bw := bufio.NewWriterSize(w, 64*1024)
 	chunks := &kittyChunkWriter{
 		w:      bw,
-		header: fmt.Sprintf("a=T,f=100,i=%d,p=1,U=1,c=%d,r=%d,q=2,", imageID, cols, rows),
+		header: fmt.Sprintf("a=T,f=100,i=%d,p=1,U=1,C=1,c=%d,r=%d,q=2,", imageID, cols, rows),
 	}
 
 	if format == "png" {
@@ -226,7 +226,7 @@ func PlaceKittyImage(w io.Writer, imageID uint32, cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return fmt.Errorf("无效的 Kitty 图像尺寸: %dx%d", cols, rows)
 	}
-	_, err := fmt.Fprintf(w, "\x1b_Ga=p,U=1,q=2,i=%d,p=1,c=%d,r=%d\x1b\\", imageID, cols, rows)
+	_, err := fmt.Fprintf(w, "\x1b_Ga=p,U=1,q=2,i=%d,p=1,C=1,c=%d,r=%d\x1b\\", imageID, cols, rows)
 	return err
 }
 
