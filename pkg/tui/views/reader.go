@@ -27,7 +27,7 @@ import (
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/theme"
 )
 
-type chapterContentLoadedMsg struct {
+type ChapterContentLoadedMsg struct {
 	engine       *reader.Reader
 	inlineImages []inlineImage
 	gen          uint64
@@ -49,7 +49,7 @@ type inlineImage struct {
 	err    error
 }
 
-type illustrationLoadedMsg struct {
+type IllustrationLoadedMsg struct {
 	index    int
 	gen      uint64
 	path     string
@@ -144,7 +144,7 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 	loadCmd := func() tea.Msg {
 		r, err := reader.NewReader(v.store, bookID)
 		if err != nil {
-			return chapterContentLoadedMsg{err: err, gen: gen}
+			return ChapterContentLoadedMsg{err: err, gen: gen}
 		}
 
 		// Ensure chapter cached
@@ -155,16 +155,16 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 			defer cancel()
 			ch, err := v.src.GetChapterContent(ctx, bookID, chapterID)
 			if err != nil {
-				return chapterContentLoadedMsg{err: err, gen: gen}
+				return ChapterContentLoadedMsg{err: err, gen: gen}
 			}
 			_ = v.store.SaveChapter(ch)
 		}
 
 		if _, err = r.LoadChapter(chapterID); err != nil {
-			return chapterContentLoadedMsg{engine: r, err: err, gen: gen}
+			return ChapterContentLoadedMsg{engine: r, err: err, gen: gen}
 		}
 
-		msg := chapterContentLoadedMsg{engine: r, gen: gen}
+		msg := ChapterContentLoadedMsg{engine: r, gen: gen}
 		// Mixed chapters preload and transmit illustrations before the text is
 		// shown, so every image block reserves a stable line count.
 		if kittyCapable && len(r.Illustrations()) > 0 && !r.IsIllustrationOnly() {
@@ -333,7 +333,7 @@ func (v *ReaderView) startImageLoad(index int) tea.Cmd {
 func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPath string, previousID uint32, maxCols, maxRows int) tea.Cmd {
 	return func() tea.Msg {
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
+			return IllustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		// Download if missing
@@ -342,13 +342,13 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 			defer cancel()
 			if err := termimage.DownloadImageToFile(ctx, imgURL, localPath); err != nil {
 				if v.imageGen.Load() != gen {
-					return illustrationLoadedMsg{index: index, gen: gen, stale: true}
+					return IllustrationLoadedMsg{index: index, gen: gen, stale: true}
 				}
-				return illustrationLoadedMsg{index: index, gen: gen, err: fmt.Errorf("下载插图失败: %w", err)}
+				return IllustrationLoadedMsg{index: index, gen: gen, err: fmt.Errorf("下载插图失败: %w", err)}
 			}
 		}
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
+			return IllustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		var imgW, imgH int
@@ -365,7 +365,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 			}
 		}
 
-		msg := illustrationLoadedMsg{
+		msg := IllustrationLoadedMsg{
 			index:    index,
 			gen:      gen,
 			path:     localPath,
@@ -384,7 +384,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 		v.imageMu.Lock()
 		defer v.imageMu.Unlock()
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
+			return IllustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		transmitErr := v.terminalOut.WithLock(func(w io.Writer) error {
@@ -408,7 +408,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 			_ = v.terminalOut.WithLock(func(w io.Writer) error {
 				return termimage.DeleteKittyImage(w, newID)
 			})
-			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
+			return IllustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		msg.kitty = true
@@ -848,9 +848,15 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case chapterContentLoadedMsg:
+	case ChapterContentLoadedMsg:
 		if msg.gen != 0 && msg.gen != v.chapterGen.Load() {
-			return v, nil
+			ids := make([]uint32, 0, len(msg.inlineImages))
+			for _, img := range msg.inlineImages {
+				if img.id != 0 {
+					ids = append(ids, img.id)
+				}
+			}
+			return v, v.deleteKittyImagesCmd(ids)
 		}
 		v.loading = false
 		v.err = msg.err
@@ -896,7 +902,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		}
 		return v, nil
 
-	case illustrationLoadedMsg:
+	case IllustrationLoadedMsg:
 		if msg.stale || msg.gen != v.imageGen.Load() || !v.showImageModal || msg.index != v.imageIndex {
 			if msg.kitty && msg.kittyID != 0 {
 				return v, v.deleteKittyImageCmd(msg.kittyID)

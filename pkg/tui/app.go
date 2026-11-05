@@ -188,6 +188,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.bookshelfView.Activate())
 		}
 
+	case views.ChapterContentLoadedMsg, views.IllustrationLoadedMsg:
+		var cmd tea.Cmd
+		m.readerView, cmd = m.readerView.Update(msg)
+		return m, cmd
+
 	case views.CoverLoadedMsg:
 		var coverCmds []tea.Cmd
 		if cmd := m.bookshelfView.HandleCoverLoaded(msg); cmd != nil {

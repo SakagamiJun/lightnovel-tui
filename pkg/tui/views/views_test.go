@@ -782,7 +782,7 @@ func TestMixedChapterRendersInlineImages(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected chapter load command")
 	}
-	msg, ok := cmd().(chapterContentLoadedMsg)
+	msg, ok := cmd().(ChapterContentLoadedMsg)
 	if !ok {
 		t.Fatalf("unexpected chapter message type")
 	}
@@ -1051,7 +1051,7 @@ func TestMixedInlineImageFallbackWithoutKitty(t *testing.T) {
 	rv.SetSize(80, 24)
 	rv.SetTerminalOutput(termimage.NewLockedWriter(&bytes.Buffer{}))
 	msg := rv.OpenChapter(bookID, chapterID)()
-	if msg.(chapterContentLoadedMsg).inlineImages != nil {
+	if msg.(ChapterContentLoadedMsg).inlineImages != nil {
 		t.Fatalf("non-Kitty terminal should not prepare inline images")
 	}
 	rv.Update(msg)
@@ -1067,7 +1067,7 @@ func TestMixedInlineImageFallbackWithoutKitty(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected fallback modal load command")
 	}
-	loaded, ok := cmd().(illustrationLoadedMsg)
+	loaded, ok := cmd().(IllustrationLoadedMsg)
 	if !ok || loaded.err != nil {
 		t.Fatalf("fallback illustration load failed: %+v", loaded)
 	}
@@ -1137,14 +1137,14 @@ func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
 	rv.SetSize(80, 30)
 	rv.SetTerminalOutput(termimage.NewLockedWriter(&out))
 
-	_, cmd := rv.Update(chapterContentLoadedMsg{engine: r})
+	_, cmd := rv.Update(ChapterContentLoadedMsg{engine: r})
 	if cmd == nil {
 		t.Fatalf("expected automatic gallery image load")
 	}
 	if !rv.galleryMode || !rv.showImageModal {
 		t.Fatalf("expected gallery mode, got gallery=%v modal=%v", rv.galleryMode, rv.showImageModal)
 	}
-	loaded, ok := cmd().(illustrationLoadedMsg)
+	loaded, ok := cmd().(IllustrationLoadedMsg)
 	if !ok || loaded.err != nil {
 		t.Fatalf("gallery image load failed: %+v", loaded)
 	}
@@ -1172,7 +1172,7 @@ func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
 	if nextCmd == nil {
 		t.Fatalf("expected next image command")
 	}
-	next, ok := nextCmd().(illustrationLoadedMsg)
+	next, ok := nextCmd().(IllustrationLoadedMsg)
 	if !ok || next.err != nil {
 		t.Fatalf("second gallery image load failed: %+v", next)
 	}
@@ -1203,7 +1203,7 @@ func TestIllustrationOnlyChapterOpensGallery(t *testing.T) {
 	if loadCmd == nil {
 		t.Fatalf("expected chapter load command")
 	}
-	loadedMsg, ok := loadCmd().(chapterContentLoadedMsg)
+	loadedMsg, ok := loadCmd().(ChapterContentLoadedMsg)
 	if !ok || loadedMsg.err != nil {
 		t.Fatalf("reload failed: %+v", loadedMsg)
 	}
@@ -2226,7 +2226,7 @@ func TestKittyIllustrationLoadIntegration(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected an illustration load command")
 	}
-	msg, ok := cmd().(illustrationLoadedMsg)
+	msg, ok := cmd().(IllustrationLoadedMsg)
 	if !ok {
 		t.Fatalf("unexpected message type %T", msg)
 	}
@@ -2278,7 +2278,7 @@ func TestStaleIllustrationMessageDoesNotReplaceCurrentImage(t *testing.T) {
 	}
 	rv.imageGen.Store(7)
 
-	rv.Update(illustrationLoadedMsg{
+	rv.Update(IllustrationLoadedMsg{
 		index:   0,
 		gen:     6,
 		kitty:   true,
