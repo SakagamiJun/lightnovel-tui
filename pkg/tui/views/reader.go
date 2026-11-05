@@ -498,6 +498,13 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		}
 		return v, nil
 
+	case tea.ResumeMsg:
+		// Suspending releases the alternate screen, which clears Kitty image
+		// data. Re-upload the current illustration when the modal is still open.
+		if v.showImageModal && v.kittyImageID != 0 {
+			return v, v.startImageLoad(v.imageIndex)
+		}
+
 	case tea.WindowSizeMsg:
 		if cmd := v.reflowKittyImage(); cmd != nil {
 			return v, cmd
