@@ -53,6 +53,13 @@ func TestKittyPlaceholderGrid(t *testing.T) {
 	if got := KittyPlaceholderGrid(kittyMaxImageID+1, 3, 2); got != nil {
 		t.Errorf("expected nil grid for out-of-range image id, got %v", got)
 	}
+	large := KittyPlaceholderGrid(kittyMaxImageID, 72, 40)
+	for row, line := range large {
+		if got := ansi.StringWidth(line); got != 72 {
+			t.Errorf("large grid row %d width = %d, want 72", row, got)
+		}
+	}
+
 	if got := KittyPlaceholderGrid(imageID, 0, 2); got != nil {
 		t.Errorf("expected nil grid for zero columns, got %v", got)
 	}
