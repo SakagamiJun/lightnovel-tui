@@ -28,7 +28,8 @@ import (
 )
 
 type chapterContentLoadedMsg struct {
-	err error
+	engine *reader.Reader
+	err    error
 }
 
 type illustrationLoadedMsg struct {
@@ -117,7 +118,6 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 		if err != nil {
 			return chapterContentLoadedMsg{err: err}
 		}
-		v.reader = r
 
 		// Ensure chapter cached
 		_, err = v.store.LoadChapter(bookID, chapterID)
@@ -132,8 +132,8 @@ func (v *ReaderView) OpenChapter(bookID, chapterID string) tea.Cmd {
 			_ = v.store.SaveChapter(ch)
 		}
 
-		_, err = v.reader.LoadChapter(chapterID)
-		return chapterContentLoadedMsg{err: err}
+		_, err = r.LoadChapter(chapterID)
+		return chapterContentLoadedMsg{engine: r, err: err}
 	}
 
 	if cleanup != nil {
@@ -246,7 +246,7 @@ func (v *ReaderView) resetImageState() tea.Cmd {
 // startImageLoad resolves the illustration path on the update goroutine and
 // starts an asynchronous download/transmission job.
 func (v *ReaderView) startImageLoad(index int) tea.Cmd {
-	if v.reader == nil {
+	if v.reader == nil || v.loading {
 		return nil
 	}
 	urls := v.reader.Illustrations()
@@ -446,6 +446,9 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 	case chapterContentLoadedMsg:
 		v.loading = false
 		v.err = msg.err
+		if msg.engine != nil {
+			v.reader = msg.engine
+		}
 		if v.err == nil && v.reader != nil {
 			v.refreshViewportContent()
 			v.viewport.GotoTop()
@@ -539,7 +542,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		// Regular text reading interaction
 		switch msg.String() {
 		case "i", "I":
-			if v.totalIllustrations() > 0 {
+			if !v.loading && v.totalIllustrations() > 0 {
 				v.showImageModal = true
 				return v, v.startImageLoad(0)
 			}
