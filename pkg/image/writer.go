@@ -19,6 +19,14 @@ type LockedWriter struct {
 	closed bool
 }
 
+// Compile-time check for the file shape Bubble Tea uses to detect a terminal.
+var _ interface {
+	io.Reader
+	io.Writer
+	io.Closer
+	Fd() uintptr
+} = (*LockedWriter)(nil)
+
 // NewLockedWriter wraps w with a mutex. A nil writer yields nil so callers can
 // disable inline graphics cleanly.
 func NewLockedWriter(w io.Writer) *LockedWriter {
