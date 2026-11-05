@@ -20,6 +20,7 @@ import (
 )
 
 type catalogResultMsg struct {
+	gen     uint64
 	detail  *model.BookDetail
 	catalog *model.BookCatalog
 	err     error
@@ -30,6 +31,7 @@ type CatalogView struct {
 	store               *storage.Storage
 	src                 source.DataSource
 	bookID              string
+	loadGen             uint64
 	detail              *model.BookDetail
 	catalog             *model.BookCatalog
 	cursor              int
@@ -51,6 +53,9 @@ type CatalogView struct {
 	onExport            func(bookID string, volumeIndex int) tea.Cmd
 	onExportWithOptions func(bookID string, opt epub.ExportOption) tea.Cmd
 	onBack              func() tea.Cmd
+
+	// Cover preview state (right-side panel on the catalog page).
+	cover coverPreview
 }
 
 type flatChapterItem struct {
@@ -106,12 +111,15 @@ func (v *CatalogView) CloseExportModal() {
 // LoadBook triggers fetching catalog for a given book ID.
 func (v *CatalogView) LoadBook(bookID string) tea.Cmd {
 	v.bookID = bookID
+	v.loadGen++
+	gen := v.loadGen
 	v.loading = true
 	v.err = nil
 	v.cursor = 0
 	v.offset = 0
+	cleanup := v.resetCoverState()
 
-	return func() tea.Msg {
+	loadCmd := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
@@ -132,11 +140,17 @@ func (v *CatalogView) LoadBook(bookID string) tea.Cmd {
 		}
 
 		return catalogResultMsg{
+			gen:     gen,
 			detail:  detail,
 			catalog: catalog,
 			err:     err,
 		}
 	}
+
+	if cleanup != nil {
+		return tea.Batch(loadCmd, cleanup)
+	}
+	return loadCmd
 }
 
 func (v *CatalogView) Init() tea.Cmd {
@@ -289,6 +303,9 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case catalogResultMsg:
+		if msg.gen != v.loadGen {
+			return v, nil
+		}
 		v.loading = false
 		v.detail = msg.detail
 		v.catalog = msg.catalog
@@ -298,7 +315,46 @@ func (v *CatalogView) Update(msg tea.Msg) (*CatalogView, tea.Cmd) {
 		v.selectedVols = make(map[int]bool)
 		v.showExportModal = false
 		v.flattenItems()
+
+		v.cover.url = ""
+		v.cover.path = ""
+		v.cover.loading = false
+		v.cover.err = nil
+		v.cover.grid = nil
+		v.cover.cols = 0
+		v.cover.rows = 0
+		if msg.err == nil && msg.detail != nil {
+			v.cover.url = msg.detail.CoverURL
+			if v.store != nil {
+				v.cover.path = v.store.FindCoverPath(v.bookID)
+			}
+		}
+		if cmd := v.startCoverLoadIfNeeded(); cmd != nil {
+			return v, cmd
+		}
 		return v, nil
+
+	case catalogCoverLoadedMsg:
+		return v, v.updateCover(msg)
+
+	case tea.ResumeMsg:
+		// Releasing the terminal clears Kitty image data. Reload the cover when
+		// it was visible before the suspend.
+		c := &v.cover
+		if v.coverPaneWidth() > 0 && (c.imageID != 0 || len(c.grid) > 0) {
+			c.gen.Add(1)
+			c.loading = false
+			c.grid = nil
+			c.cols = 0
+			c.rows = 0
+			c.imageID = 0
+			return v, v.startCoverLoadIfNeeded()
+		}
+
+	case tea.WindowSizeMsg:
+		if cmd := v.handleCoverResize(); cmd != nil {
+			return v, cmd
+		}
 
 	case tea.MouseMsg:
 		if v.showExportModal {
@@ -529,33 +585,59 @@ func (v *CatalogView) View() string {
 		return v.renderExportModal()
 	}
 
-	var sb strings.Builder
-	maxWidth := v.width - 2
-	if maxWidth < 30 {
-		maxWidth = 30
+	fullWidth := v.width - 2
+	if fullWidth < 30 {
+		fullWidth = 30
 	}
 
-	if v.detail != nil {
-		curPos := v.cursor + 1
-		total := len(v.flatItems)
-		var selInfo string
-		selCount := v.countSelectedVols()
-		if selCount > 0 {
-			selInfo = fmt.Sprintf("  •  已勾选 %d 卷", selCount)
+	header := v.renderCatalogHeader(fullWidth)
+	paneWidth := v.coverPaneWidth()
+	listWidth := fullWidth
+	if paneWidth > 0 {
+		listWidth = fullWidth - paneWidth - 1
+		if listWidth < 30 {
+			paneWidth = 0
+			listWidth = fullWidth
 		}
-		var headerText string
-		if maxWidth >= 90 {
-			headerText = fmt.Sprintf(" %s%s  •  [%d/%d 项]  •  [Enter] 阅读  •  [Space] 勾选分卷  •  [E] 导出选项",
-				v.detail.Title, selInfo, curPos, total)
-		} else {
-			headerText = fmt.Sprintf(" %s%s  •  [%d/%d]  •  [Enter]阅读  •  [Space]勾选  •  [E]导出",
-				v.detail.Title, selInfo, curPos, total)
-		}
-		header := lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
-			Render(theme.TruncateANSI(headerText, maxWidth, "..."))
-		sb.WriteString(header + "\n")
 	}
 
+	body := v.renderCatalogBody(listWidth)
+	var content string
+	if paneWidth > 0 {
+		content = lipgloss.JoinHorizontal(lipgloss.Top, body, " ", v.renderCoverPane())
+	} else {
+		content = body
+	}
+	if header != "" {
+		return header + "\n" + content
+	}
+	return content
+}
+
+func (v *CatalogView) renderCatalogHeader(width int) string {
+	if v.detail == nil {
+		return ""
+	}
+	curPos := v.cursor + 1
+	total := len(v.flatItems)
+	var selInfo string
+	if selCount := v.countSelectedVols(); selCount > 0 {
+		selInfo = fmt.Sprintf("  •  已勾选 %d 卷", selCount)
+	}
+
+	var headerText string
+	if width >= 90 {
+		headerText = fmt.Sprintf(" %s%s  •  [%d/%d 项]  •  [Enter] 阅读  •  [Space] 勾选分卷  •  [E] 导出选项",
+			v.detail.Title, selInfo, curPos, total)
+	} else {
+		headerText = fmt.Sprintf(" %s%s  •  [%d/%d]  •  [Enter]阅读  •  [Space]勾选  •  [E]导出",
+			v.detail.Title, selInfo, curPos, total)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(theme.PrimaryLight).
+		Render(theme.TruncateANSI(headerText, width, "..."))
+}
+
+func (v *CatalogView) renderCatalogBody(width int) string {
 	v.adjustOffset()
 	visible := v.visibleLines()
 	start := v.offset
@@ -564,10 +646,12 @@ func (v *CatalogView) View() string {
 		end = len(v.flatItems)
 	}
 
+	var sb strings.Builder
+
 	// Top indicator if truncated
 	if start > 0 {
 		msg := fmt.Sprintf("  ▲ 上方还有 %d 项已折叠 (按 [g] 到顶部) ", start)
-		ruleLen := maxWidth - theme.StringWidth(msg)
+		ruleLen := width - theme.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -575,7 +659,7 @@ func (v *CatalogView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.BorderColor).
-			Render(strings.Repeat("─", maxWidth)) + "\n")
+			Render(strings.Repeat("─", width)) + "\n")
 	}
 
 	// Windowed slice rendering
@@ -592,27 +676,27 @@ func (v *CatalogView) View() string {
 			}
 			volBadge := theme.BadgeInfo.Render("分卷")
 			volText := fmt.Sprintf(" %s [分卷] %s %s ", checkBadge, item.volTitle, volBadge)
-			ruleLen := maxWidth - theme.StringWidth(volText)
+			ruleLen := width - theme.StringWidth(volText)
 			if ruleLen < 0 {
 				ruleLen = 0
 			}
 			volLine := volText + strings.Repeat("─", ruleLen)
-			volLineTrunc := theme.TruncateANSI(volLine, maxWidth, "...")
+			volLineTrunc := theme.TruncateANSI(volLine, width, "...")
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.AccentSky).
 				Render(volLineTrunc))
 			sb.WriteString("\n")
 		} else {
 			if isSelected {
 				prefix := "  ▎ ▶ "
-				line := theme.TruncateANSI(prefix+item.title, maxWidth, "...")
+				line := theme.TruncateANSI(prefix+item.title, width, "...")
 				sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.TextWhite).
-					Background(theme.HighlightBg).Width(maxWidth).Render(line))
+					Background(theme.HighlightBg).Width(width).Render(line))
 				sb.WriteString("\n")
 			} else {
 				prefix := "    │ "
-				line := theme.TruncateANSI(prefix+item.title, maxWidth, "...")
+				line := theme.TruncateANSI(prefix+item.title, width, "...")
 				sb.WriteString(lipgloss.NewStyle().Foreground(theme.TextWhite).
-					Width(maxWidth).Render(line))
+					Width(width).Render(line))
 				sb.WriteString("\n")
 			}
 		}
@@ -622,7 +706,7 @@ func (v *CatalogView) View() string {
 	if end < len(v.flatItems) {
 		remaining := len(v.flatItems) - end
 		msg := fmt.Sprintf("  ▼ 下方还有 %d 项已折叠 (按 [G] 跳到底部) ", remaining)
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := width - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -630,7 +714,7 @@ func (v *CatalogView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	} else {
 		msg := "  [全部] 已显示全部分卷与章节 "
-		ruleLen := maxWidth - runewidth.StringWidth(msg)
+		ruleLen := width - runewidth.StringWidth(msg)
 		if ruleLen < 0 {
 			ruleLen = 0
 		}
@@ -638,5 +722,5 @@ func (v *CatalogView) View() string {
 			Render(msg+strings.Repeat("─", ruleLen)) + "\n")
 	}
 
-	return sb.String()
+	return strings.TrimSuffix(sb.String(), "\n")
 }

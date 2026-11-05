@@ -127,10 +127,13 @@ func NewAppModel(store *storage.Storage, src source.DataSource) *AppModel {
 }
 
 // SetTerminalOutput forwards the synchronized terminal writer used by both the
-// Bubble Tea renderer and inline Kitty graphics to the reader view.
+// Bubble Tea renderer and inline Kitty graphics to the image-capable views.
 func (m *AppModel) SetTerminalOutput(out *termimage.LockedWriter) {
 	if m.readerView != nil {
 		m.readerView.SetTerminalOutput(out)
+	}
+	if m.catalogView != nil {
+		m.catalogView.SetTerminalOutput(out)
 	}
 }
 
