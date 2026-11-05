@@ -3,7 +3,11 @@ package views
 import (
 	"bytes"
 	"fmt"
+	stdimage "image"
+	"image/color"
+	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +16,7 @@ import (
 	"github.com/SakagamiJun/lightnovel-tui/pkg/epub"
 	termimage "github.com/SakagamiJun/lightnovel-tui/pkg/image"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/model"
+	"github.com/SakagamiJun/lightnovel-tui/pkg/reader"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/storage"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/common"
 	"github.com/SakagamiJun/lightnovel-tui/pkg/tui/theme"
@@ -1116,6 +1121,127 @@ func TestIllustrationModalKittyGrid(t *testing.T) {
 	}
 	if lines := strings.Count(out, "\n") + 1; lines > 30 {
 		t.Errorf("modal rendered %d lines, exceeds view height 30", lines)
+	}
+}
+
+func TestKittyIllustrationLoadIntegration(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.NewStorage(dir)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	const bookID = "book_kitty"
+	const chapterID = "ch_1"
+	const imgURL = "https://example.com/illustration.png"
+	if err := store.SaveCatalog(&model.BookCatalog{
+		BookID: bookID,
+		Volumes: []model.Volume{{
+			ID:    "vol_1",
+			Title: "第一卷",
+			Chapters: []model.Chapter{{
+				ID:    chapterID,
+				Title: "第一章",
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("failed to save catalog: %v", err)
+	}
+	if err := store.SaveChapter(&model.ChapterContent{
+		ID:     chapterID,
+		BookID: bookID,
+		Title:  "第一章",
+		Elements: []model.ContentElement{
+			{Type: model.ContentTypeImage, URL: imgURL},
+			{Type: model.ContentTypeText, Text: "正文内容"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to save chapter: %v", err)
+	}
+
+	r, err := reader.NewReader(store, bookID)
+	if err != nil {
+		t.Fatalf("failed to create reader: %v", err)
+	}
+	if _, err := r.LoadChapter(chapterID); err != nil {
+		t.Fatalf("failed to load chapter: %v", err)
+	}
+	if got := len(r.Illustrations()); got != 1 {
+		t.Fatalf("expected 1 illustration, got %d", got)
+	}
+
+	imgPath := r.IllustrationPath(r.Illustrations()[0])
+	if err := os.MkdirAll(filepath.Dir(imgPath), 0o755); err != nil {
+		t.Fatalf("failed to create image dir: %v", err)
+	}
+	img := stdimage.NewRGBA(stdimage.Rect(0, 0, 160, 120))
+	for y := 0; y < 120; y++ {
+		for x := 0; x < 160; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 90, A: 255})
+		}
+	}
+	f, err := os.Create(imgPath)
+	if err != nil {
+		t.Fatalf("failed to create image: %v", err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		t.Fatalf("failed to encode image: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("failed to close image: %v", err)
+	}
+
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	rv := &ReaderView{
+		reader:         r,
+		width:          80,
+		height:         30,
+		showImageModal: true,
+		kittyCapable:   true,
+		terminalOut:    lw,
+	}
+	rv.SetSize(80, 30)
+
+	cmd := rv.startImageLoad(0)
+	if cmd == nil {
+		t.Fatalf("expected an illustration load command")
+	}
+	msg, ok := cmd().(illustrationLoadedMsg)
+	if !ok {
+		t.Fatalf("unexpected message type %T", msg)
+	}
+	if msg.err != nil {
+		t.Fatalf("illustration load failed: %v", msg.err)
+	}
+	if !msg.kitty || msg.kittyID == 0 || msg.cols <= 0 || msg.rows <= 0 {
+		t.Fatalf("expected a Kitty transmission, got %+v", msg)
+	}
+	if !strings.Contains(out.String(), "\x1b_Ga=T,f=100") {
+		t.Errorf("terminal output missing Kitty transmit header: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "U=1") || !strings.Contains(out.String(), "c=") {
+		t.Errorf("terminal output missing Unicode placeholder placement: %q", out.String())
+	}
+
+	rv.Update(msg)
+	if rv.imageLoading {
+		t.Errorf("expected image loading to finish")
+	}
+	if len(rv.imageGrid) == 0 {
+		t.Fatalf("expected placeholder grid to be installed")
+	}
+	if rv.kittyImageID != msg.kittyID {
+		t.Errorf("kitty image id = %d, want %d", rv.kittyImageID, msg.kittyID)
+	}
+
+	view := rv.renderImageModal()
+	if got := strings.Count(view, string(rune(0x10EEEE))); got != msg.cols*msg.rows {
+		t.Errorf("placeholder count = %d, want %d", got, msg.cols*msg.rows)
+	}
+	if !strings.Contains(view, "Kitty 图形协议") {
+		t.Errorf("expected the modal to label Kitty rendering")
 	}
 }
 
