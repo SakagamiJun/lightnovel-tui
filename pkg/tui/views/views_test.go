@@ -6,6 +6,8 @@ import (
 	stdimage "image"
 	"image/color"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,6 +195,359 @@ func TestCatalogViewLineBudget(t *testing.T) {
 
 	if !strings.Contains(lines[0], "刀剑神域") {
 		t.Errorf("expected line 0 to contain book title, got: %s", lines[0])
+	}
+}
+
+func TestCatalogCoverPaneAbsentWithoutCover(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_no_cover"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{ID: bookID, Title: "无封面书籍"}}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{{
+		ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}},
+	}}}
+
+	var out bytes.Buffer
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(100, 30)
+	cv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+	cv.bookID = bookID
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd != nil {
+		t.Fatalf("expected no cover command for a book without a cover URL or file")
+	}
+	if got := cv.coverPaneWidth(); got != 0 {
+		t.Fatalf("cover pane width = %d, want 0", got)
+	}
+	view := cv.View()
+	if strings.Contains(view, string(rune(0x10EEEE))) {
+		t.Errorf("view should not contain Kitty placeholders")
+	}
+	if strings.Contains(view, "封面加载中") {
+		t.Errorf("view should not contain a cover placeholder")
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if w := ansi.StringWidth(line); w > 100 {
+			t.Errorf("line %d width = %d, exceeds catalog width 100", i, w)
+		}
+	}
+}
+
+func TestCatalogCoverLoadAndRender(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_with_cover"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{
+		ID:       bookID,
+		Title:    "封面测试",
+		CoverURL: "http://example.com/cover.jpg",
+	}}
+	if err := store.SaveBookDetail(detail); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{
+		{ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}}},
+		{ID: "v2", Title: "第二卷", Chapters: []model.Chapter{{ID: "c2", Title: "第二章"}}},
+	}}
+	if err := store.SaveCatalog(catalog); err != nil {
+		t.Fatal(err)
+	}
+	writeTestCover(t, store.ImagePath(bookID, "cover.png"), 120, 180)
+
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(100, 30)
+	cv.SetTerminalOutput(lw)
+	cv.bookID = bookID
+
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd == nil {
+		t.Fatalf("expected a cover load command")
+	}
+	msg := cmd()
+	loaded, ok := msg.(catalogCoverLoadedMsg)
+	if !ok {
+		t.Fatalf("unexpected cover message type %T", msg)
+	}
+	if loaded.err != nil {
+		t.Fatalf("cover load failed: %v", loaded.err)
+	}
+	if !loaded.kitty || loaded.imageID == 0 || loaded.cols <= 0 || loaded.rows <= 0 {
+		t.Fatalf("expected a Kitty cover transmission, got %+v", loaded)
+	}
+	if !strings.Contains(out.String(), "\x1b_Ga=T,f=100") || !strings.Contains(out.String(), "U=1") {
+		t.Errorf("terminal output missing Kitty cover transmission: %q", out.String())
+	}
+
+	cv.Update(loaded)
+	if cv.coverPaneWidth() != catalogCoverPaneWidth {
+		t.Fatalf("cover pane width = %d, want %d", cv.coverPaneWidth(), catalogCoverPaneWidth)
+	}
+	if cv.cover.imageID != loaded.imageID {
+		t.Errorf("cover image id = %d, want %d", cv.cover.imageID, loaded.imageID)
+	}
+
+	view := cv.View()
+	wantPlaceholders := loaded.cols * loaded.rows
+	if got := strings.Count(view, string(rune(0x10EEEE))); got != wantPlaceholders {
+		t.Errorf("placeholder count = %d, want %d", got, wantPlaceholders)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) > 30 {
+		t.Errorf("catalog view rendered %d lines, exceeds height 30", len(lines))
+	}
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w > 100 {
+			t.Errorf("line %d width = %d, exceeds catalog width 100", i, w)
+		}
+	}
+}
+
+func TestCatalogCoverDownloadsMissingLocalCover(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	coverBytes := func() []byte {
+		var buf bytes.Buffer
+		img := stdimage.NewRGBA(stdimage.Rect(0, 0, 90, 135))
+		for y := 0; y < 135; y++ {
+			for x := 0; x < 90; x++ {
+				img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 80, A: 255})
+			}
+		}
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(coverBytes)
+	}))
+	defer server.Close()
+
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_remote_cover"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{
+		ID:       bookID,
+		Title:    "远程封面",
+		CoverURL: server.URL + "/cover.png",
+	}}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{
+		{ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}}},
+	}}
+
+	var out bytes.Buffer
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(100, 30)
+	cv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+	cv.bookID = bookID
+
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd == nil {
+		t.Fatalf("expected a cover download command")
+	}
+	loaded, ok := cmd().(catalogCoverLoadedMsg)
+	if !ok {
+		t.Fatalf("unexpected cover message type")
+	}
+	if loaded.err != nil {
+		t.Fatalf("cover download failed: %v", loaded.err)
+	}
+	cv.Update(loaded)
+
+	if path := store.FindCoverPath(bookID); path == "" {
+		t.Fatalf("expected the downloaded cover to be cached")
+	}
+	if cv.cover.imageID == 0 || len(cv.cover.grid) == 0 {
+		t.Fatalf("expected the downloaded cover to be displayed")
+	}
+	if !strings.Contains(out.String(), "\x1b_Ga=T,f=100") {
+		t.Errorf("terminal output missing Kitty cover transmission")
+	}
+}
+
+func TestCatalogCoverFailureKeepsFullWidth(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_bad_cover"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{
+		ID:       bookID,
+		Title:    "坏封面",
+		CoverURL: "://bad-url",
+	}}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{
+		{ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}}},
+	}}
+
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(100, 30)
+	cv.SetTerminalOutput(lw)
+	cv.bookID = bookID
+
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd == nil {
+		t.Fatalf("expected a cover download command")
+	}
+	msg := cmd()
+	loaded, ok := msg.(catalogCoverLoadedMsg)
+	if !ok {
+		t.Fatalf("unexpected cover message type %T", msg)
+	}
+	if loaded.err == nil {
+		t.Fatalf("expected the invalid cover URL to fail")
+	}
+	cv.Update(loaded)
+
+	if got := cv.coverPaneWidth(); got != 0 {
+		t.Fatalf("cover pane width = %d, want 0 after failure", got)
+	}
+	view := cv.View()
+	if strings.Contains(view, string(rune(0x10EEEE))) || strings.Contains(view, "封面加载中") {
+		t.Errorf("view should fall back to the full-width text layout")
+	}
+	for i, line := range strings.Split(view, "\n") {
+		if w := ansi.StringWidth(line); w > 100 {
+			t.Errorf("line %d width = %d, exceeds catalog width 100", i, w)
+		}
+	}
+}
+
+func TestCatalogCoverLineBudget(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_cover_many"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{ID: bookID, Title: "长目录封面测试"}}
+	chapters := make([]model.Chapter, 0, 60)
+	for i := 0; i < 60; i++ {
+		chapters = append(chapters, model.Chapter{ID: fmt.Sprintf("c%d", i), Title: fmt.Sprintf("第 %d 章 测试章节标题", i+1)})
+	}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{
+		{ID: "v1", Title: "第一卷", Chapters: chapters},
+	}}
+	writeTestCover(t, store.ImagePath(bookID, "cover.png"), 201, 303)
+
+	var out bytes.Buffer
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(80, 21)
+	cv.SetTerminalOutput(termimage.NewLockedWriter(&out))
+	cv.bookID = bookID
+
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd == nil {
+		t.Fatalf("expected a cover load command")
+	}
+	loaded, ok := cmd().(catalogCoverLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("cover load failed: %+v", loaded)
+	}
+	cv.Update(loaded)
+
+	view := cv.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) > 21 {
+		t.Errorf("catalog rendered %d lines with cover, exceeds height 21", len(lines))
+	}
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w > 80 {
+			t.Errorf("line %d width = %d, exceeds catalog width 80", i, w)
+		}
+	}
+	if got := strings.Count(view, string(rune(0x10EEEE))); got != cv.cover.cols*cv.cover.rows {
+		t.Errorf("placeholder count = %d, want %d", got, cv.cover.cols*cv.cover.rows)
+	}
+	if cv.cover.cols == 0 || cv.cover.rows == 0 {
+		t.Errorf("expected a non-empty cover grid")
+	}
+}
+
+func TestCatalogCoverResizeReflow(t *testing.T) {
+	t.Setenv("LNR_IMAGE_PROTOCOL", "kitty")
+	store, err := storage.NewStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bookID = "book_cover_resize"
+	detail := &model.BookDetail{BookSummary: model.BookSummary{ID: bookID, Title: "封面缩放"}}
+	catalog := &model.BookCatalog{BookID: bookID, Volumes: []model.Volume{
+		{ID: "v1", Title: "第一卷", Chapters: []model.Chapter{{ID: "c1", Title: "第一章"}}},
+	}}
+	writeTestCover(t, store.ImagePath(bookID, "cover.png"), 120, 180)
+
+	var out bytes.Buffer
+	lw := termimage.NewLockedWriter(&out)
+	cv := NewCatalogView(store, nil, nil)
+	cv.SetSize(100, 30)
+	cv.SetTerminalOutput(lw)
+	cv.bookID = bookID
+
+	_, cmd := cv.Update(catalogResultMsg{detail: detail, catalog: catalog})
+	if cmd == nil {
+		t.Fatalf("expected a cover load command")
+	}
+	loaded, ok := cmd().(catalogCoverLoadedMsg)
+	if !ok || loaded.err != nil {
+		t.Fatalf("cover load failed: %+v", loaded)
+	}
+	cv.Update(loaded)
+	oldCols, oldRows := cv.cover.cols, cv.cover.rows
+
+	out.Reset()
+	cv.SetSize(100, 18)
+	_, cmd = cv.Update(tea.WindowSizeMsg{Width: 100, Height: 18})
+	if cmd == nil {
+		t.Fatalf("expected a cover reflow command")
+	}
+	cmd()
+	if !strings.Contains(out.String(), "\x1b_Ga=p,U=1") {
+		t.Errorf("expected a Kitty placement command, got %q", out.String())
+	}
+	if cv.cover.cols == oldCols && cv.cover.rows == oldRows {
+		t.Errorf("expected cover grid to shrink after resize, still %dx%d", oldCols, oldRows)
+	}
+	if len(cv.cover.grid) != cv.cover.rows {
+		t.Errorf("grid rows = %d, want %d", len(cv.cover.grid), cv.cover.rows)
+	}
+}
+
+func writeTestCover(t *testing.T, path string, width, height int) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img := stdimage.NewRGBA(stdimage.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 110, A: 255})
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
