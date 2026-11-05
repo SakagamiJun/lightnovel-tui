@@ -117,19 +117,41 @@ func (d *Downloader) DownloadCover(ctx context.Context, bookID, coverURL string)
 	}
 	defer stream.Close()
 
-	out, err := os.Create(destPath)
+	// Write to a temporary file first so an interrupted or corrupt download
+	// never leaves a partial cover.jpg that later callers mistake for valid.
+	tmp, err := os.CreateTemp(filepath.Dir(destPath), ".cover-*.tmp")
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	tmpPath := tmp.Name()
+	success := false
+	defer func() {
+		if !success {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	bufPtr := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(bufPtr)
 
-	_, err = io.CopyBuffer(out, stream, *bufPtr)
-	if err != nil {
+	if _, err := io.CopyBuffer(tmp, stream, *bufPtr); err != nil {
 		return "", err
 	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		// A concurrent download may have completed the destination first.
+		if _, statErr := os.Stat(destPath); statErr == nil {
+			return destPath, nil
+		}
+		return "", fmt.Errorf("保存封面失败: %w", err)
+	}
+	success = true
 	return destPath, nil
 }
 

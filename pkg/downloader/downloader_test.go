@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -133,4 +134,55 @@ func TestDownloadVolume(t *testing.T) {
 		t.Errorf("cover file does not exist: %v", err)
 	}
 	t.Logf("Downloaded cover successfully at: %s", coverPath)
+}
+
+func TestDownloadCoverDoesNotLeavePartialFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lnr-test-cover-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl, err := NewDownloader(&mockDataSource{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Errorf("response writer does not support hijacking")
+			return
+		}
+		conn, bufrw, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nshort")
+		_ = bufrw.Flush()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := dl.DownloadCover(ctx, "book_partial", server.URL+"/cover.jpg"); err == nil {
+		t.Fatalf("expected the truncated cover download to fail")
+	}
+
+	destPath := filepath.Join(store.BookDir("book_partial"), "images", "cover.jpg")
+	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
+		t.Errorf("partial cover should not be promoted to %s", destPath)
+	}
+	matches, err := filepath.Glob(filepath.Join(store.BookDir("book_partial"), "images", ".cover-*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("temporary cover files were not cleaned up: %v", matches)
+	}
 }
