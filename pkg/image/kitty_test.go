@@ -224,6 +224,7 @@ func TestKittyPlaceAndDelete(t *testing.T) {
 func TestSupportsKittyPlaceholders(t *testing.T) {
 	t.Setenv("KITTY_WINDOW_ID", "")
 	t.Setenv("KITTY_PID", "")
+	t.Setenv("WEZTERM_PANE", "")
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
 	t.Setenv(kittyProtocolEnv, "")
@@ -232,6 +233,39 @@ func TestSupportsKittyPlaceholders(t *testing.T) {
 		t.Errorf("expected no Kitty placeholder support in a generic terminal")
 	}
 
+	// VS Code / Cursor can inherit KITTY_WINDOW_ID from the terminal that
+	// launched the editor, but their integrated terminal does not implement
+	// Unicode placeholders.
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	t.Setenv("TERM", "xterm-kitty")
+	t.Setenv("TERM_PROGRAM", "vscode")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected VS Code to be excluded despite leaked KITTY_WINDOW_ID")
+	}
+	t.Setenv("TERM_PROGRAM", "Cursor")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected Cursor to be excluded despite leaked KITTY_WINDOW_ID")
+	}
+
+	// WezTerm speaks Kitty APC but not U+10EEEE placeholders.
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "WezTerm")
+	t.Setenv("WEZTERM_PANE", "1")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected WezTerm to be excluded")
+	}
+	t.Setenv("WEZTERM_PANE", "")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected WezTerm to be excluded by TERM_PROGRAM")
+	}
+
+	t.Setenv("TERM_PROGRAM", "WarpTerminal")
+	if SupportsKittyPlaceholders() {
+		t.Errorf("expected Warp to be excluded")
+	}
+
+	t.Setenv("TERM_PROGRAM", "")
 	t.Setenv("TERM", "xterm-kitty")
 	if !SupportsKittyPlaceholders() {
 		t.Errorf("expected Kitty placeholder support for xterm-kitty")

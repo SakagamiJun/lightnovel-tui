@@ -92,6 +92,18 @@ func SupportsKittyPlaceholders() bool {
 		return false
 	}
 
+	termProgram := strings.ToLower(strings.TrimSpace(os.Getenv("TERM_PROGRAM")))
+	// IDEs and other embedded terminals can inherit KITTY_WINDOW_ID from the
+	// terminal that launched them, yet do not implement U+10EEEE placeholders.
+	switch {
+	case os.Getenv("WEZTERM_PANE") != "",
+		strings.Contains(termProgram, "wezterm"),
+		strings.Contains(termProgram, "vscode"),
+		strings.Contains(termProgram, "cursor"),
+		strings.Contains(termProgram, "warp"):
+		return false
+	}
+
 	if os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("KITTY_PID") != "" {
 		return true
 	}
@@ -100,7 +112,7 @@ func SupportsKittyPlaceholders() bool {
 	if strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") {
 		return true
 	}
-	return strings.Contains(strings.ToLower(os.Getenv("TERM_PROGRAM")), "ghostty")
+	return strings.Contains(termProgram, "ghostty")
 }
 
 // NewKittyImageID returns a random image id that can be encoded in the
