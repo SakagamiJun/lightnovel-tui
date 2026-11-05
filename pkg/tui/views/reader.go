@@ -33,6 +33,7 @@ type chapterContentLoadedMsg struct {
 
 type illustrationLoadedMsg struct {
 	index    int
+	gen      uint64
 	path     string
 	width    int
 	height   int
@@ -273,7 +274,7 @@ func (v *ReaderView) startImageLoad(index int) tea.Cmd {
 func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPath string, previousID uint32, maxCols, maxRows int) tea.Cmd {
 	return func() tea.Msg {
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, stale: true}
+			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		// Download if missing
@@ -282,13 +283,13 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 			defer cancel()
 			if err := termimage.DownloadImageToFile(ctx, imgURL, localPath); err != nil {
 				if v.imageGen.Load() != gen {
-					return illustrationLoadedMsg{index: index, stale: true}
+					return illustrationLoadedMsg{index: index, gen: gen, stale: true}
 				}
-				return illustrationLoadedMsg{index: index, err: fmt.Errorf("下载插图失败: %w", err)}
+				return illustrationLoadedMsg{index: index, gen: gen, err: fmt.Errorf("下载插图失败: %w", err)}
 			}
 		}
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, stale: true}
+			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		var imgW, imgH int
@@ -307,6 +308,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 
 		msg := illustrationLoadedMsg{
 			index:    index,
+			gen:      gen,
 			path:     localPath,
 			width:    imgW,
 			height:   imgH,
@@ -323,7 +325,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 		v.imageMu.Lock()
 		defer v.imageMu.Unlock()
 		if v.imageGen.Load() != gen {
-			return illustrationLoadedMsg{index: index, stale: true}
+			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		transmitErr := v.terminalOut.WithLock(func(w io.Writer) error {
@@ -347,7 +349,7 @@ func (v *ReaderView) loadIllustrationCmd(index int, gen uint64, imgURL, localPat
 			_ = v.terminalOut.WithLock(func(w io.Writer) error {
 				return termimage.DeleteKittyImage(w, newID)
 			})
-			return illustrationLoadedMsg{index: index, stale: true}
+			return illustrationLoadedMsg{index: index, gen: gen, stale: true}
 		}
 
 		msg.kitty = true
@@ -458,7 +460,7 @@ func (v *ReaderView) Update(msg tea.Msg) (*ReaderView, tea.Cmd) {
 		return v, nil
 
 	case illustrationLoadedMsg:
-		if msg.stale || !v.showImageModal || msg.index != v.imageIndex {
+		if msg.stale || msg.gen != v.imageGen.Load() || !v.showImageModal || msg.index != v.imageIndex {
 			if msg.kitty && msg.kittyID != 0 {
 				return v, v.deleteKittyImageCmd(msg.kittyID)
 			}

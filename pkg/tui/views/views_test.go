@@ -1251,6 +1251,36 @@ func TestKittyIllustrationLoadIntegration(t *testing.T) {
 	}
 }
 
+func TestStaleIllustrationMessageDoesNotReplaceCurrentImage(t *testing.T) {
+	rv := &ReaderView{
+		width:          80,
+		height:         24,
+		showImageModal: true,
+		imageIndex:     0,
+		imageLoading:   true,
+	}
+	rv.imageGen.Store(7)
+
+	rv.Update(illustrationLoadedMsg{
+		index:   0,
+		gen:     6,
+		kitty:   true,
+		kittyID: 0x010203,
+		cols:    4,
+		rows:    2,
+	})
+
+	if rv.imageLoading != true {
+		t.Errorf("stale message should not finish the active load")
+	}
+	if rv.imageGrid != nil {
+		t.Errorf("stale message should not install a placeholder grid")
+	}
+	if rv.kittyImageID != 0 {
+		t.Errorf("stale message should not commit an image id")
+	}
+}
+
 func TestIllustrationModalCloseDeletesKittyImage(t *testing.T) {
 	var out bytes.Buffer
 	lw := termimage.NewLockedWriter(&out)
